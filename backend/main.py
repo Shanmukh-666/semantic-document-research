@@ -281,22 +281,24 @@ def ask_question(request: AskRequest):
     }
 
 
-@app.post("/reindex")
-def reindex_all_documents(
-    chunk_size: int = Query(default=300),
-    overlap: int = Query(default=50)
+def index_all_disk_documents(
+    chunk_size: int = 300,
+    overlap: int = 50,
+    clear_existing: bool = False
 ):
     """
-    Safely clears the existing ChromaDB index and re-chunks/re-embeds all files in uploads/ and data/.
-    Prevents mixing old and new embeddings when chunking settings change.
+    Scans data/ and uploads/ folders, parses PDFs and DOCX files,
+    creates sentence-aware chunks, and persists them into ChromaDB.
     """
-    reset_collection()
+    if clear_existing:
+        reset_collection()
 
     processed = []
     errors = []
 
-    # Check both data/ and backend/uploads/
+    # Check backend/data/, root data/, and backend/uploads/
     candidate_dirs = [
+        BASE_DIR / "data",
         BASE_DIR.parent / "data",
         UPLOAD_DIR
     ]
@@ -335,6 +337,40 @@ def reindex_all_documents(
                         })
                 except Exception as e:
                     errors.append({"filename": file_path.name, "error": str(e)})
+
+    return processed, errors
+
+
+@app.on_event("startup")
+def startup_event():
+    """
+    Automatically indexes default sample papers on initial startup / cloud deploy
+    if the ChromaDB vector database is currently empty.
+    """
+    try:
+        current_count = get_collection_count()
+        if current_count == 0:
+            print("ChromaDB collection is empty on startup. Auto-indexing initial documents...")
+            processed, errors = index_all_disk_documents(chunk_size=300, overlap=50, clear_existing=False)
+            print(f"Startup auto-indexing complete: {len(processed)} documents ({get_collection_count()} chunks total).")
+    except Exception as e:
+        print(f"Startup indexing warning: {e}")
+
+
+@app.post("/reindex")
+def reindex_all_documents(
+    chunk_size: int = Query(default=300),
+    overlap: int = Query(default=50)
+):
+    """
+    Safely clears the existing ChromaDB index and re-chunks/re-embeds all files in uploads/ and data/.
+    Prevents mixing old and new embeddings when chunking settings change.
+    """
+    processed, errors = index_all_disk_documents(
+        chunk_size=chunk_size,
+        overlap=overlap,
+        clear_existing=True
+    )
 
     return {
         "message": "Re-indexing completed",

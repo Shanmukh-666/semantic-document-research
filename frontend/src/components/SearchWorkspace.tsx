@@ -14,14 +14,6 @@ export const SearchWorkspace: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const sampleQueries = [
-    'How does NLP assist clinical decision support and EHR analysis?',
-    'What role do large language models play in personalized learning?',
-    'What NLP methods detect phishing and analyze malware behaviors?',
-    'How are financial sentiment analysis and ESG reporting implemented?',
-    'How is NLP used for climate change research and carbon tracking?'
-  ];
-
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!query.trim()) return;
@@ -80,24 +72,6 @@ export const SearchWorkspace: React.FC = () => {
           </button>
         </div>
       </form>
-
-      {/* Suggested Queries */}
-      <div className="chips-row">
-        <span style={{ fontSize: '12px', color: 'var(--text-subtle)', alignSelf: 'center', marginRight: 4 }}>
-          Try:
-        </span>
-        {sampleQueries.map((sq, i) => (
-          <button
-            key={i}
-            className="chip-btn"
-            onClick={() => {
-              setQuery(sq);
-            }}
-          >
-            {sq}
-          </button>
-        ))}
-      </div>
 
       {/* Parameter Controls */}
       <div className="controls-row">

@@ -13,14 +13,6 @@ export const AskWorkspace: React.FC = () => {
   const [expandedChunkId, setExpandedChunkId] = useState<string | null>(null);
   const [copiedAnswer, setCopiedAnswer] = useState<boolean>(false);
 
-  const sampleQuestions = [
-    'How do NLP models assist in clinical decision support and EHR processing?',
-    'What are the applications and ethical considerations of NLP in education?',
-    'How is NLP used for threat intelligence and cybersecurity log parsing?',
-    'What role does NLP play in financial risk modeling and market sentiment?',
-    'How are NLP techniques applied to climate policy analysis and carbon emissions tracking?'
-  ];
-
   const handleAsk = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!question.trim()) return;
@@ -85,25 +77,6 @@ export const AskWorkspace: React.FC = () => {
           </button>
         </div>
       </form>
-
-      {/* Suggested Questions */}
-      <div className="chips-row">
-        <span style={{ fontSize: '12px', color: 'var(--text-subtle)', alignSelf: 'center', marginRight: 4 }}>
-          Examples:
-        </span>
-        {sampleQuestions.map((sq, i) => (
-          <button
-            key={i}
-            className="chip-btn"
-            disabled={isAsking}
-            onClick={() => {
-              setQuestion(sq);
-            }}
-          >
-            {sq}
-          </button>
-        ))}
-      </div>
 
       {/* Parameter bar */}
       <div className="controls-row">
