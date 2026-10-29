@@ -351,3 +351,10 @@ def debug_chroma():
         "total_chunks": get_collection_count(),
         "documents": list_indexed_documents()
     }
+
+
+if __name__ == "__main__":
+    import os
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
