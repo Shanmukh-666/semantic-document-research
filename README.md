@@ -347,90 +347,126 @@ venv\Scripts\activate
 macOS/Linux:
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-```
-
-### 4. Install dependencies
+### 3. Setup Virtual Environment
 
 ```bash
-pip install -r requirements.txt
+# Windows
+python -m venv backend/venv
+.\backend\venv\Scripts\activate
+
+# Linux / macOS
+python -m venv backend/venv
+source backend/venv/bin/activate
 ```
 
-### 5. Configure the API key
+### 4. Install Dependencies
 
-Create a `.env` file inside `backend/`:
+```bash
+pip install -r backend/requirements.txt
+```
 
+### 5. Frontend Setup
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+### 6. Configure Environment Variables
+
+Copy `.env.example` to `backend/.env`:
+
+```bash
+cp .env.example backend/.env
+```
+
+Optionally set your `GEMINI_API_KEY`:
 ```env
-GEMINI_API_KEY=your_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
-
-Do not commit `.env` to GitHub.
-
-Use `.env.example` as the template.
+> **Note:** If `GEMINI_API_KEY` is omitted or unconfigured, the system runs in retrieval-only mode. Semantic search, document parsing, and chunk inspection remain 100% functional without throwing 500 errors.
 
 ---
 
 ## Running the Project
 
-From the `backend` directory:
+### Start the FastAPI Backend
+
+From the repository root:
+```bash
+.\backend\venv\Scripts\uvicorn backend.main:app --reload --port 8000
+```
+Or from the `backend/` directory:
+```bash
+cd backend
+python -m uvicorn main:app --reload --port 8000
+```
+
+* API Root: `http://localhost:8000`
+* Interactive API Documentation (Swagger UI): `http://localhost:8000/docs`
+
+### Start the React Frontend
+
+In a separate terminal:
+```bash
+cd frontend
+npm run dev
+```
+
+* React Research Workspace: `http://localhost:5173`
+
+---
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/` | API status, version, and count of indexed chunks |
+| `GET` | `/documents` | Lists all indexed documents, chunk counts, and page counts |
+| `DELETE` | `/documents/{filename}` | Removes a document and its chunks from the vector store |
+| `POST` | `/upload` | Accepts PDF/DOCX with optional `chunk_size` and `overlap` form fields |
+| `POST` | `/search` | Semantic similarity search returning top-k chunks with L2 distance |
+| `POST` | `/ask` | Evidence-grounded Q&A with citations, inspectable chunks, and LLM fallback |
+| `POST` | `/reindex` | Safely resets vector store and re-indexes all files with new chunk parameters |
+| `GET` | `/debug/chroma` | Collection diagnostics and summary |
+
+---
+
+## Automated Testing & Evaluation
+
+### Run Test Suite
 
 ```bash
-python -m uvicorn main:app
+.\backend\venv\Scripts\pytest backend/tests -v
 ```
 
-Then open Swagger UI:
+The test suite covers:
+* **Chunker unit tests:** Empty text, sentence boundaries, overlap bounds, long sentence splitting, trailing chunk merging, invalid parameter validation.
+* **Document processor tests:** PDF and DOCX extraction, table parsing, missing and corrupted file handling.
+* **Vector store tests:** Chunk indexing, duplicate document clean replacement, document listing, deletion, distance labeling.
+* **API integration tests:** Upload, search, ask with mocked deterministic LLM, graceful degradation on LLM failure, reindexing.
+* **Retrieval evaluation benchmark:** Evaluates Precision@1 and Recall@k on the 5 technical domain papers in `data/`.
+
+### Retrieval Benchmark Results
 
 ```text
-http://127.0.0.1:8000/docs
+--- RETRIEVAL EVALUATION REPORT ---
+Domain: Healthcare         | Target: 01_NLP_in_Healthcare.pdf | Rank 1: 01_NLP_in_Healthcare.pdf (L2=0.9913) | Hit@1: True | Hit@3: True
+Domain: Education          | Target: 02_NLP_in_Education.docx | Rank 1: 02_NLP_in_Education.docx (L2=0.9073) | Hit@1: True | Hit@3: True
+Domain: Cybersecurity      | Target: 03_NLP_for_Cybersecurity.pdf | Rank 1: 03_NLP_for_Cybersecurity.pdf (L2=1.5023) | Hit@1: True | Hit@3: True
+Domain: Finance            | Target: 04_NLP_for_Finance.docx | Rank 1: 04_NLP_for_Finance.docx (L2=0.9776) | Hit@1: True | Hit@3: True
+Domain: Climate Research   | Target: 05_NLP_for_Climate_Research.pdf | Rank 1: 05_NLP_for_Climate_Research.pdf (L2=1.5756) | Hit@1: True | Hit@3: True
+
+Overall Precision@1 (Recall@1): 100.0%
+Overall Recall@3: 100.0%
 ```
 
----
+### Build Frontend Production Bundle
 
-## Using the System
-
-### Step 1 — Upload documents
-
-Use:
-
-```text
-POST /upload
-```
-
-Upload multiple PDF and DOCX documents.
-
-Each document is processed and its chunks are stored in ChromaDB.
-
-### Step 2 — Test semantic retrieval
-
-Use:
-
-```text
-POST /search
-```
-
-Ask a natural-language question.
-
-The API returns the most relevant chunks.
-
-### Step 3 — Generate an answer
-
-Use:
-
-```text
-POST /ask
-```
-
-The system retrieves the relevant chunks and uses them as context for the LLM.
-
----
-
-## Example Questions
-
-### Healthcare
-
-```text
-How is NLP used to analyze medical records?
+```bash
+cd frontend
+npm run build
 ```
 
 ### Education
