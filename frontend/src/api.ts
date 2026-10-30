@@ -25,6 +25,16 @@ if (typeof window !== 'undefined') {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    if (res.status === 504) {
+      throw new Error(
+        'The upload took longer than expected. Please wait a moment and click Refresh in the header to view your indexed document.'
+      );
+    }
+    if (res.status === 502) {
+      throw new Error(
+        'The cloud backend is currently waking up or recovering. Please allow ~20–30 seconds and click Refresh.'
+      );
+    }
     let errorDetail = `Request failed with status ${res.status}`;
     try {
       const errorJson = await res.json();
@@ -44,7 +54,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 /**
  * Resilient fetch with automatic route failover:
  * 1. Tries primary URL (direct Render HTTPS)
- * 2. If blocked by browser/network/CORS, falls back to Vercel reverse proxy (/api)
+ * 2. If blocked by network or CORS, falls back to Vercel reverse proxy (/api)
  */
 async function resilientFetch(path: string, init?: RequestInit): Promise<Response> {
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
@@ -91,11 +101,15 @@ export const api = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
       try {
-        const res = await fetch(`${base}/`, { signal: controller.signal });
+        const url = base.endsWith('/') ? `${base}` : `${base}/`;
+        const res = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
         if (res.ok) {
-          const data = await res.json();
-          return { ok: true, chunks: data.indexed_chunks ?? 0 };
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
+            const data = await res.json();
+            return { ok: true, chunks: data.indexed_chunks ?? 0 };
+          }
         }
       } catch {
         clearTimeout(timeoutId);
@@ -103,18 +117,18 @@ export const api = {
       return { ok: false, chunks: 0 };
     };
 
-    // 1. Try activeBaseUrl
-    const check1 = await checkUrl(activeBaseUrl);
+    // 1. Try direct Render first
+    const check1 = await checkUrl(CLOUD_URL);
     if (check1.ok) {
-      return { online: true, indexedChunks: check1.chunks, apiUrl: activeBaseUrl };
+      activeBaseUrl = CLOUD_URL;
+      return { online: true, indexedChunks: check1.chunks, apiUrl: CLOUD_URL };
     }
 
-    // 2. Try alternate route
-    const altBase = activeBaseUrl === CLOUD_URL ? PROXY_URL : CLOUD_URL;
-    const check2 = await checkUrl(altBase);
+    // 2. Try proxy as fallback
+    const check2 = await checkUrl(`${PROXY_URL}/api`);
     if (check2.ok) {
-      activeBaseUrl = altBase;
-      return { online: true, indexedChunks: check2.chunks, apiUrl: activeBaseUrl };
+      activeBaseUrl = PROXY_URL;
+      return { online: true, indexedChunks: check2.chunks, apiUrl: PROXY_URL };
     }
 
     return {
@@ -167,12 +181,26 @@ export const api = {
     formData.append('chunk_size', chunkSize.toString());
     formData.append('overlap', overlap.toString());
 
-    const res = await resilientFetch('/upload', {
-      method: 'POST',
-      body: formData,
-      signal
-    });
-    return handleResponse<UploadResponse>(res);
+    // Send upload directly to Render cloud URL first to avoid Vercel 15s edge proxy timeout
+    try {
+      const res = await fetch(`${CLOUD_URL}/upload`, {
+        method: 'POST',
+        body: formData,
+        signal
+      });
+      return await handleResponse<UploadResponse>(res);
+    } catch (directErr: any) {
+      if (directErr.name === 'AbortError') {
+        throw directErr;
+      }
+      console.warn('Direct upload to Render failed, trying fallback route:', directErr);
+      const res = await resilientFetch('/upload', {
+        method: 'POST',
+        body: formData,
+        signal
+      });
+      return await handleResponse<UploadResponse>(res);
+    }
   },
 
   async deleteDocument(filename: string): Promise<{ filename: string; message: string }> {

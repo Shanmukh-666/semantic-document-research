@@ -75,7 +75,7 @@ def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
     try:
         sess, tok = _get_onnx_model()
         all_embeddings = []
-        batch_size = 8
+        batch_size = 16
 
         for i in range(0, len(cleaned), batch_size):
             batch_texts = cleaned[i:i + batch_size]
