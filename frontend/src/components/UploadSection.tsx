@@ -12,7 +12,8 @@ import {
   MessageSquareText,
   PlusCircle,
   Layers,
-  Hash
+  Hash,
+  Wifi
 } from 'lucide-react';
 import { api } from '../api';
 import type { UploadResponse, ReindexResponse } from '../types';
@@ -26,6 +27,8 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
   const [chunkSize, setChunkSize] = useState<number>(300);
   const [overlap, setOverlap] = useState<number>(50);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isWakingUp, setIsWakingUp] = useState<boolean>(false);
+  const [wakeUpMessage, setWakeUpMessage] = useState<string>('');
   const [uploadingFileName, setUploadingFileName] = useState<string>('');
   const [uploadingFileSize, setUploadingFileSize] = useState<string>('');
   const [isReindexing, setIsReindexing] = useState<boolean>(false);
@@ -38,6 +41,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const cancelledRef = useRef<boolean>(false);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -56,16 +60,19 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
   };
 
   const handleCancelUpload = () => {
+    cancelledRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    setIsWakingUp(false);
     setIsUploading(false);
     setUploadingFileName('');
     setUploadingFileSize('');
+    setWakeUpMessage('');
     setFeedback({
       type: 'info',
-      message: 'Upload was cancelled by user.'
+      message: 'Upload was cancelled.'
     });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -83,16 +90,40 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
       return;
     }
 
-
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    setIsUploading(true);
+    cancelledRef.current = false;
+    setLastUploaded(null);
+    setFeedback(null);
     setUploadingFileName(file.name);
     setUploadingFileSize(formatFileSize(file.size));
-    setFeedback(null);
-    setLastUploaded(null);
+
+    // Step 1: Wake up the Render backend first
+    setIsWakingUp(true);
+    setWakeUpMessage('Connecting to cloud server...');
+
+    const isOnline = await api.waitForBackend(90000, (msg) => {
+      if (!cancelledRef.current) {
+        setWakeUpMessage(msg);
+      }
+    });
+
+    if (cancelledRef.current) return;
+
+    if (!isOnline) {
+      setIsWakingUp(false);
+      setFeedback({
+        type: 'error',
+        message: 'Could not connect to the cloud server after 90 seconds. Please check your internet connection and try again.'
+      });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setIsWakingUp(false);
+
+    // Step 2: Upload the file
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsUploading(true);
 
     try {
       const res: UploadResponse = await api.uploadDocument(
@@ -101,12 +132,13 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
         overlap,
         controller.signal
       );
-      setLastUploaded(res);
-      setFeedback(null);
-      onSuccess();
+      if (!cancelledRef.current) {
+        setLastUploaded(res);
+        setFeedback(null);
+        onSuccess();
+      }
     } catch (err: any) {
-      if (err.name === 'AbortError') {
-        // Handled in handleCancelUpload
+      if (err.name === 'AbortError' || cancelledRef.current) {
         return;
       }
       setFeedback({
@@ -164,11 +196,13 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
     }
   };
 
+  const isBusy = isWakingUp || isUploading;
+
   return (
     <div className="research-card">
       <h2 className="card-title">
         <UploadCloud size={18} />
-        Document Ingestion & Chunking
+        Document Ingestion &amp; Chunking
       </h2>
       <p className="card-description">
         Upload research PDFs or Word documents (DOCX). Texts are parsed, segmented with sentence-aware boundaries, embedded into 384-dimensional vectors, and indexed in ChromaDB.
@@ -222,7 +256,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
           <button
             className="btn btn-secondary"
             onClick={handleReindex}
-            disabled={isReindexing || isUploading}
+            disabled={isReindexing || isBusy}
             title="Re-index all documents with current chunk parameters"
             style={{ fontSize: '13px', padding: '6px 12px' }}
           >
@@ -232,8 +266,52 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
         </div>
       </div>
 
-      {/* 1. UPLOADING STATE: Replaces dropzone with loading spinner and Cancel button */}
-      {isUploading ? (
+      {/* 1. WAKING UP STATE: Backend cold start */}
+      {isWakingUp ? (
+        <div
+          style={{
+            border: '2px dashed var(--accent)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '40px 24px',
+            textAlign: 'center',
+            backgroundColor: 'var(--bg-subtle)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 16
+          }}
+        >
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <Wifi size={44} className="spin" color="var(--accent)" style={{ animationDuration: '2s' }} />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 4 }}>
+              Waking Up Cloud Server
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+              <strong>{uploadingFileName}</strong>{uploadingFileSize && ` (${uploadingFileSize})`} ready to upload
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--text-subtle)', marginTop: 4 }}>
+              {wakeUpMessage || 'Connecting to Render cloud server...'}
+            </p>
+            <p style={{ fontSize: '11px', color: 'var(--text-subtle)', marginTop: 4, opacity: 0.7 }}>
+              💡 Free Render instances sleep when inactive. First request takes ~30–50s to wake up.
+            </p>
+          </div>
+
+          <button
+            className="btn btn-danger"
+            onClick={handleCancelUpload}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', marginTop: 8 }}
+          >
+            <XCircle size={15} />
+            <span>Cancel</span>
+          </button>
+        </div>
+
+      ) : isUploading ? (
+        /* 2. UPLOADING STATE */
         <div
           style={{
             border: '2px dashed var(--accent)',
@@ -253,13 +331,13 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
 
           <div>
             <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 4 }}>
-              Uploading & Indexing Document
+              Uploading &amp; Indexing Document
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
               <strong>{uploadingFileName}</strong> {uploadingFileSize && `(${uploadingFileSize})`}
             </p>
             <p style={{ fontSize: '12px', color: 'var(--text-subtle)', marginTop: 4 }}>
-              Extracting text, computing sentence-aware chunks & generating ONNX embeddings...
+              Extracting text, computing sentence-aware chunks &amp; generating ONNX embeddings...
             </p>
           </div>
 
@@ -272,8 +350,9 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
             <span>Cancel Upload</span>
           </button>
         </div>
+
       ) : lastUploaded ? (
-        /* 2. SUCCESS STATE: Replaces the dropzone with a clean confirmation card */
+        /* 3. SUCCESS STATE */
         <div
           style={{
             border: '1px solid var(--success-border)',
@@ -345,8 +424,9 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
             )}
           </div>
         </div>
+
       ) : (
-        /* 3. IDLE STATE: Default Drag & Drop box */
+        /* 4. IDLE STATE: Default Drag & Drop box */
         <div
           className={`dropzone ${dragActive ? 'active' : ''}`}
           onDragEnter={handleDrag}
@@ -371,16 +451,14 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
           <div className="dropzone-hint">
             Supports research PDF and DOCX files
           </div>
-
-
         </div>
       )}
 
       {/* Feedback Messages */}
       {feedback && (
         <div style={{ marginTop: 16 }}>
-          <div className={`alert ${feedback.type === 'success' ? 'alert-info' : 'alert-danger'}`}>
-            {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          <div className={`alert ${feedback.type === 'success' ? 'alert-info' : feedback.type === 'info' ? 'alert-info' : 'alert-danger'}`}>
+            {feedback.type === 'success' || feedback.type === 'info' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
             <span>{feedback.message}</span>
           </div>
         </div>

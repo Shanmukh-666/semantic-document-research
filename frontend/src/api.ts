@@ -47,7 +47,7 @@ async function resilientFetch(input: string, init?: RequestInit): Promise<Respon
       throw err;
     }
     throw new Error(
-      'Unable to connect to the Render cloud backend. The server may be waking up (~30s). Please wait a moment and click Refresh.'
+      'Unable to connect to the Render cloud backend. The server may be waking up (~30–50s). Please wait a moment and click Refresh.'
     );
   }
 }
@@ -64,7 +64,7 @@ export const api = {
   async getStatus(): Promise<ApiStatus> {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
       const res = await fetch(`${API_BASE}/`, { signal: controller.signal });
       clearTimeout(timeoutId);
 
@@ -89,10 +89,50 @@ export const api = {
         indexedChunks: 0,
         apiUrl: API_BASE,
         error: err.name === 'AbortError'
-          ? 'Connecting to Render cloud server timed out (~15s).'
+          ? 'Connecting to Render cloud server timed out (~20s).'
           : (err.message || 'Cannot connect to Render cloud server.')
       };
     }
+  },
+
+  /**
+   * Repeatedly pings the backend until it comes online or maxWaitMs is exceeded.
+   * Used before upload to ensure the Render instance is awake.
+   * Calls onProgress with status messages as it polls.
+   */
+  async waitForBackend(
+    maxWaitMs: number = 90000,
+    onProgress?: (msg: string) => void
+  ): Promise<boolean> {
+    const startTime = Date.now();
+    let attempt = 0;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      attempt++;
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+
+      if (attempt > 1 && onProgress) {
+        onProgress(`Waking up cloud server... (${elapsed}s elapsed)`);
+      }
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(`${API_BASE}/`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          return true;
+        }
+      } catch {
+        // Still waking up – retry
+      }
+
+      // Wait 3 seconds between retries
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    return false;
   },
 
   async getDocuments(): Promise<DocumentsResponse> {
