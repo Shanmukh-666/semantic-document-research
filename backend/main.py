@@ -1,6 +1,9 @@
+import os
+import shutil
+import tempfile
+import gc
 from pathlib import Path
 from typing import Optional, List
-import shutil
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,6 +105,8 @@ def remove_document(filename: str):
     if not success:
         raise HTTPException(status_code=404, detail=f"Document '{filename}' not found in index")
 
+    gc.collect()
+
     return {
         "filename": filename,
         "message": f"Document '{filename}' removed successfully",
@@ -136,31 +141,29 @@ def upload_document(
         )
 
 
-    file_path = UPLOAD_DIR / filename
-
+    # Process in a temporary file and delete immediately — zero permanent file retention on server!
+    tmp_path = None
     try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-        # Sync a copy to data/ folders so local users see it in their data directory
-        for target_dir in [BASE_DIR / "data", BASE_DIR.parent / "data"]:
-            if target_dir.exists():
-                try:
-                    shutil.copy2(file_path, target_dir / filename)
-                except Exception:
-                    pass
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
+            shutil.copyfileobj(file.file, tmp_file)
+            tmp_path = tmp_file.name
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to process uploaded file: {str(e)}")
 
-    # Extract text per page
     try:
         if ext == ".pdf":
-            pages = extract_text_from_pdf(str(file_path))
+            pages = extract_text_from_pdf(tmp_path)
         else:
-            pages = extract_text_from_docx(str(file_path))
-
+            pages = extract_text_from_docx(tmp_path)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Text extraction failed: {str(e)}")
+    finally:
+        # Immediately delete the physical file from disk
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
 
 
     if not pages or not any(p.get("text", "").strip() for p in pages):
