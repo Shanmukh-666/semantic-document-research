@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 
 from services.document_processor import (
     extract_text_from_pdf,
-    extract_text_from_docx
+    extract_text_from_docx,
+    extract_text_from_txt
 )
 from services.chunker import create_chunks
 from services.vector_store import (
@@ -130,17 +131,27 @@ def upload_document(
     filename = file.filename or "uploaded_file"
     ext = Path(filename).suffix.lower()
 
-    if ext not in [".pdf", ".docx"]:
+    supported_exts = [".pdf", ".docx"]
+    if ext not in supported_exts:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file format '{ext}'. Only PDF and DOCX files are supported."
         )
+
 
     file_path = UPLOAD_DIR / filename
 
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+
+        # Sync a copy to data/ folders so local users see it in their data directory
+        for target_dir in [BASE_DIR / "data", BASE_DIR.parent / "data"]:
+            if target_dir.exists():
+                try:
+                    shutil.copy2(file_path, target_dir / filename)
+                except Exception:
+                    pass
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {str(e)}")
 
@@ -150,8 +161,10 @@ def upload_document(
             pages = extract_text_from_pdf(str(file_path))
         else:
             pages = extract_text_from_docx(str(file_path))
+
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Text extraction failed: {str(e)}")
+
 
     if not pages or not any(p.get("text", "").strip() for p in pages):
         raise HTTPException(
@@ -326,6 +339,8 @@ def index_all_disk_documents(
                         pages = extract_text_from_pdf(str(file_path))
                     else:
                         pages = extract_text_from_docx(str(file_path))
+
+
 
                     if not pages or not any(p.get("text", "").strip() for p in pages):
                         continue

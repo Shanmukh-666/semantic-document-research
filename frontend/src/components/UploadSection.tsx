@@ -74,13 +74,16 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
 
   const processFile = async (file: File) => {
     const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-    if (ext !== '.pdf' && ext !== '.docx') {
+    const validExtensions = ['.pdf', '.docx'];
+    if (!validExtensions.includes(ext)) {
       setFeedback({
         type: 'error',
         message: `Unsupported file format '${ext}'. Please upload a PDF or DOCX file.`
       });
       return;
     }
+
+
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -368,6 +371,8 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
           <div className="dropzone-hint">
             Supports research PDF and DOCX files
           </div>
+
+
         </div>
       )}
 

@@ -71,3 +71,25 @@ def extract_text_from_docx(file_path: str) -> List[Dict[str, Any]]:
             "text": full_text
         }
     ]
+
+
+def extract_text_from_txt(file_path: str) -> List[Dict[str, Any]]:
+    """
+    Extracts text from a plain text (.txt) or markdown (.md) file.
+    """
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+    except Exception as e:
+        raise ValueError(f"Failed to read text file: {str(e)}")
+
+    return [
+        {
+            "page_number": 1,
+            "text": text.strip()
+        }
+    ]
