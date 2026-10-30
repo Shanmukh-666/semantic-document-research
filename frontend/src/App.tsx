@@ -106,8 +106,9 @@ export function App() {
 
       {activeTab === 'library' && (
         <div>
-          <UploadSection onSuccess={fetchStatusAndDocs} />
+          <UploadSection onSuccess={fetchStatusAndDocs} onNavigateTab={setActiveTab} />
           <DocumentLibrary
+
             documents={documents}
             isLoading={isLoadingDocs}
             onRefresh={fetchStatusAndDocs}

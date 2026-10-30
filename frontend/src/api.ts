@@ -79,7 +79,8 @@ export const api = {
   async uploadDocument(
     file: File,
     chunkSize: number = 300,
-    overlap: number = 50
+    overlap: number = 50,
+    signal?: AbortSignal
   ): Promise<UploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -88,10 +89,12 @@ export const api = {
 
     const res = await fetch(`${API_BASE}/upload`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal
     });
     return handleResponse<UploadResponse>(res);
   },
+
 
   async deleteDocument(filename: string): Promise<{ filename: string; message: string }> {
     const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(filename)}`, {

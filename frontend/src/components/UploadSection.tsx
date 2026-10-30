@@ -1,24 +1,49 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, FileText, CheckCircle2, AlertCircle, RefreshCw, Settings2 } from 'lucide-react';
+import {
+  UploadCloud,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  Settings2,
+  Loader2,
+  XCircle,
+  Search,
+  MessageSquareText,
+  PlusCircle,
+  Layers,
+  Hash
+} from 'lucide-react';
 import { api } from '../api';
 import type { UploadResponse, ReindexResponse } from '../types';
 
 interface UploadSectionProps {
   onSuccess: () => void;
+  onNavigateTab?: (tab: 'ask' | 'search' | 'library') => void;
 }
 
-export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess }) => {
+export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavigateTab }) => {
   const [chunkSize, setChunkSize] = useState<number>(300);
   const [overlap, setOverlap] = useState<number>(50);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadingFileName, setUploadingFileName] = useState<string>('');
+  const [uploadingFileSize, setUploadingFileSize] = useState<string>('');
   const [isReindexing, setIsReindexing] = useState<boolean>(false);
   const [dragActive, setDragActive] = useState<boolean>(false);
+  const [lastUploaded, setLastUploaded] = useState<UploadResponse | null>(null);
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error' | 'info';
     message: string;
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -27,6 +52,23 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess }) => {
       setDragActive(true);
     } else if (e.type === 'dragleave') {
       setDragActive(false);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsUploading(false);
+    setUploadingFileName('');
+    setUploadingFileSize('');
+    setFeedback({
+      type: 'info',
+      message: 'Upload was cancelled by user.'
+    });
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -40,23 +82,37 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess }) => {
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsUploading(true);
+    setUploadingFileName(file.name);
+    setUploadingFileSize(formatFileSize(file.size));
     setFeedback(null);
+    setLastUploaded(null);
 
     try {
-      const res: UploadResponse = await api.uploadDocument(file, chunkSize, overlap);
-      setFeedback({
-        type: 'success',
-        message: `Successfully indexed "${res.filename}" (${res.pages} pages, ${res.chunks_stored} chunks created).`
-      });
+      const res: UploadResponse = await api.uploadDocument(
+        file,
+        chunkSize,
+        overlap,
+        controller.signal
+      );
+      setLastUploaded(res);
+      setFeedback(null);
       onSuccess();
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        // Handled in handleCancelUpload
+        return;
+      }
       setFeedback({
         type: 'error',
         message: err.message || 'Failed to upload and index document.'
       });
     } finally {
       setIsUploading(false);
+      abortControllerRef.current = null;
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -79,7 +135,11 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess }) => {
   };
 
   const handleReindex = async () => {
-    if (!window.confirm('This will safely clear the current vector index and re-index all uploaded and sample documents with the selected chunk settings. Continue?')) {
+    if (
+      !window.confirm(
+        'This will safely clear the current vector index and re-index all uploaded and sample documents with the selected chunk settings. Continue?'
+      )
+    ) {
       return;
     }
     setIsReindexing(true);
@@ -108,7 +168,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess }) => {
         Document Ingestion & Chunking
       </h2>
       <p className="card-description">
-        Upload research PDFs or Word documents (DOCX). Texts are normalized, divided with sentence-aware boundaries, embedded via Sentence Transformers, and stored in ChromaDB.
+        Upload research PDFs or Word documents (DOCX). Texts are parsed, segmented with sentence-aware boundaries, embedded into 384-dimensional vectors, and indexed in ChromaDB.
       </p>
 
       {/* Chunking configuration parameters */}
@@ -169,32 +229,147 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess }) => {
         </div>
       </div>
 
-      {/* Drag & Drop Box */}
-      <div
-        className={`dropzone ${dragActive ? 'active' : ''}`}
-        onDragEnter={handleDrag}
-        onDragLeave={handleDrag}
-        onDragOver={handleDrag}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          style={{ display: 'none' }}
-          onChange={handleFileChange}
-        />
-        <div className="dropzone-icon">
-          <FileText size={32} />
+      {/* 1. UPLOADING STATE: Replaces dropzone with loading spinner and Cancel button */}
+      {isUploading ? (
+        <div
+          style={{
+            border: '2px dashed var(--accent)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '40px 24px',
+            textAlign: 'center',
+            backgroundColor: 'var(--bg-subtle)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 16
+          }}
+        >
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <Loader2 size={44} className="spin" color="var(--accent)" />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: 4 }}>
+              Uploading & Indexing Document
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+              <strong>{uploadingFileName}</strong> {uploadingFileSize && `(${uploadingFileSize})`}
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--text-subtle)', marginTop: 4 }}>
+              Extracting text, computing sentence-aware chunks & generating ONNX embeddings...
+            </p>
+          </div>
+
+          <button
+            className="btn btn-danger"
+            onClick={handleCancelUpload}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', marginTop: 8 }}
+          >
+            <XCircle size={15} />
+            <span>Cancel Upload</span>
+          </button>
         </div>
-        <div className="dropzone-title">
-          {isUploading ? 'Extracting, chunking and embedding...' : 'Click to select or drag and drop document'}
+      ) : lastUploaded ? (
+        /* 2. SUCCESS STATE: Replaces the dropzone with a clean confirmation card */
+        <div
+          style={{
+            border: '1px solid var(--success-border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '32px 24px',
+            backgroundColor: 'var(--success-bg)',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 16
+          }}
+        >
+          <CheckCircle2 size={48} color="var(--success)" />
+
+          <div>
+            <h3 style={{ fontSize: '18px', fontWeight: 600, color: 'var(--success)', marginBottom: 4 }}>
+              Document Successfully Indexed!
+            </h3>
+            <p style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-main)' }}>
+              {lastUploaded.filename}
+            </p>
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+              <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <FileText size={12} /> {lastUploaded.file_type}
+              </span>
+              <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Layers size={12} /> {lastUploaded.pages} {lastUploaded.pages === 1 ? 'Page' : 'Pages'}
+              </span>
+              <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Hash size={12} /> {lastUploaded.chunks_stored} Chunks Stored
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setLastUploaded(null);
+                setFeedback(null);
+              }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <PlusCircle size={15} />
+              <span>Upload Another Document</span>
+            </button>
+
+            {onNavigateTab && (
+              <>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => onNavigateTab('search')}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Search size={15} />
+                  <span>Semantic Search</span>
+                </button>
+
+                <button
+                  className="btn btn-primary"
+                  onClick={() => onNavigateTab('ask')}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <MessageSquareText size={15} />
+                  <span>Ask AI Questions</span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="dropzone-hint">
-          Supports research PDF and DOCX files
+      ) : (
+        /* 3. IDLE STATE: Default Drag & Drop box */
+        <div
+          className={`dropzone ${dragActive ? 'active' : ''}`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+          <div className="dropzone-icon">
+            <FileText size={32} />
+          </div>
+          <div className="dropzone-title">
+            Click to select or drag and drop document
+          </div>
+          <div className="dropzone-hint">
+            Supports research PDF and DOCX files
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Feedback Messages */}
       {feedback && (
