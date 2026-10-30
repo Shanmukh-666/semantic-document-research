@@ -32,12 +32,37 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = ({
     }
   };
 
+  const handleClearAll = async () => {
+    if (!window.confirm('Are you sure you want to clear all indexed documents from the library?')) {
+      return;
+    }
+    try {
+      await api.clearDocuments();
+      onRefresh();
+    } catch (err: any) {
+      alert(`Failed to clear library: ${err.message}`);
+    }
+  };
+
   return (
     <div className="research-card">
-      <h2 className="card-title">
-        <Files size={18} />
-        Indexed Document Library
-      </h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <h2 className="card-title" style={{ margin: 0 }}>
+          <Files size={18} />
+          Indexed Document Library
+        </h2>
+        {documents.length > 0 && (
+          <button
+            className="btn btn-secondary"
+            onClick={handleClearAll}
+            style={{ fontSize: '12px', padding: '4px 10px' }}
+            title="Clear all documents from vector store"
+          >
+            <Trash2 size={13} />
+            <span>Clear Library</span>
+          </button>
+        )}
+      </div>
       <p className="card-description">
         Browse indexed documents, view page and chunk breakdowns, or delete documents from the vector store.
       </p>
@@ -53,10 +78,11 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = ({
           </div>
           <div className="empty-title">No documents indexed yet</div>
           <p className="empty-desc">
-            Upload your research papers or run "Re-index Library" to process the sample documents in the data folder.
+            Upload a research PDF or DOCX file above to start semantic search and AI question answering.
           </p>
         </div>
       ) : (
+
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
             <thead>

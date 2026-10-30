@@ -28,9 +28,6 @@ export const Header: React.FC<HeaderProps> = ({ status, onRefresh, isRefreshing 
         >
           <span className="status-dot" />
           <span>{status.online ? 'Backend Online' : 'Backend Offline'}</span>
-          <span style={{ opacity: 0.7, fontSize: '11px' }}>
-            ({status.apiUrl?.includes('onrender') ? 'Render Cloud' : 'Localhost'})
-          </span>
         </div>
 
         {status.online && (

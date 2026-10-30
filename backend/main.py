@@ -368,24 +368,24 @@ def index_all_disk_documents(
 @app.on_event("startup")
 def startup_event():
     """
-    Spawns background initialization so uvicorn binds to $PORT immediately.
-    Prevents Render deployment timeouts and out-of-memory crashes during boot.
+    Server startup handler.
+    Starts with a clean slate; sample documents are not automatically indexed by default.
     """
-    import threading
-    import time
+    print("Semantic Document Research API started successfully.")
 
-    def _background_init():
-        time.sleep(2)  # Give uvicorn time to bind the port and respond to health checks
-        try:
-            current_count = get_collection_count()
-            if current_count == 0:
-                print("ChromaDB collection empty on startup. Indexing initial sample documents...")
-                processed, errors = index_all_disk_documents(chunk_size=300, overlap=50, clear_existing=False)
-                print(f"Startup indexing complete: {len(processed)} documents ({get_collection_count()} chunks total).")
-        except Exception as e:
-            print(f"Startup indexing warning: {e}")
 
-    threading.Thread(target=_background_init, daemon=True).start()
+@app.post("/documents/clear")
+def clear_all_documents():
+    """
+    Safely clears all documents and chunks from the ChromaDB vector store.
+    """
+    reset_collection()
+    return {
+        "message": "All documents and chunks have been cleared successfully",
+        "total_documents": 0,
+        "total_chunks": 0
+    }
+
 
 
 

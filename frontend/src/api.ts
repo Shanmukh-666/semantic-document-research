@@ -103,6 +103,14 @@ export const api = {
     return handleResponse(res);
   },
 
+  async clearDocuments(): Promise<{ message: string; total_documents: number; total_chunks: number }> {
+    const res = await fetch(`${API_BASE}/documents/clear`, {
+      method: 'POST'
+    });
+    return handleResponse(res);
+  },
+
+
   async search(
     query: string,
     topK: number = 5,
