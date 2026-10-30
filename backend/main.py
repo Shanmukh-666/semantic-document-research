@@ -63,6 +63,8 @@ class AskRequest(BaseModel):
 
 
 @app.get("/")
+@app.get("/api")
+@app.get("/api/")
 def root():
     return {
         "name": "Semantic Document Research API",
@@ -73,6 +75,7 @@ def root():
 
 
 @app.get("/documents")
+@app.get("/api/documents")
 def get_documents():
     """Returns a list of all documents currently indexed in ChromaDB."""
     documents = list_indexed_documents()
@@ -84,6 +87,7 @@ def get_documents():
 
 
 @app.delete("/documents/{filename}")
+@app.delete("/api/documents/{filename}")
 def remove_document(filename: str):
     """Deletes all chunks for a document from the vector store."""
     success = delete_document(filename)
@@ -106,6 +110,7 @@ def remove_document(filename: str):
 
 
 @app.post("/upload")
+@app.post("/api/upload")
 def upload_document(
     file: UploadFile = File(...),
     chunk_size: int = Form(default=300),
@@ -198,6 +203,7 @@ def upload_document(
 
 
 @app.post("/search")
+@app.post("/api/search")
 def search_documents(request: SearchRequest):
     """
     Performs semantic vector search across all indexed document chunks.
@@ -221,6 +227,7 @@ def search_documents(request: SearchRequest):
 
 
 @app.post("/ask")
+@app.post("/api/ask")
 def ask_question(request: AskRequest):
     """
     Answers a research question grounded in retrieved semantic context.
@@ -367,6 +374,7 @@ def startup_event():
 
 
 @app.post("/documents/clear")
+@app.post("/api/documents/clear")
 def clear_all_documents():
     """
     Safely clears all documents and chunks from the ChromaDB vector store.
@@ -382,6 +390,7 @@ def clear_all_documents():
 
 
 @app.post("/reindex")
+@app.post("/api/reindex")
 def reindex_all_documents(
     chunk_size: int = Query(default=300),
     overlap: int = Query(default=50)

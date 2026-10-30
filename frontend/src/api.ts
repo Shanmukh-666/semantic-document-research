@@ -7,10 +7,13 @@ import type {
   ApiStatus
 } from './types';
 
-// The application connects exclusively to the deployed Render backend
-export const API_BASE = 'https://semantic-document-research.onrender.com';
+export const CLOUD_URL = 'https://semantic-document-research.onrender.com';
+export const PROXY_URL = '/api';
 
-// Clean up any previously stored local storage overrides
+// Default to direct Render cloud endpoint, with automatic silent fallback to Vercel same-origin proxy
+let activeBaseUrl = CLOUD_URL;
+
+// Clean up any old localStorage overrides
 if (typeof window !== 'undefined') {
   try {
     localStorage.removeItem('custom_api_url');
@@ -38,23 +41,45 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json();
 }
 
-// Wrapper for fetch that catches network disconnects ("Failed to fetch")
-async function resilientFetch(input: string, init?: RequestInit): Promise<Response> {
+/**
+ * Resilient fetch with automatic route failover:
+ * 1. Tries primary URL (direct Render HTTPS)
+ * 2. If blocked by browser/network/CORS, falls back to Vercel reverse proxy (/api)
+ */
+async function resilientFetch(path: string, init?: RequestInit): Promise<Response> {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const primaryUrl = `${activeBaseUrl}${cleanPath}`;
+  const altBase = activeBaseUrl === CLOUD_URL ? PROXY_URL : CLOUD_URL;
+  const secondaryUrl = `${altBase}${cleanPath}`;
+
   try {
-    return await fetch(input, init);
+    const res = await fetch(primaryUrl, init);
+    return res;
   } catch (err: any) {
     if (err.name === 'AbortError') {
       throw err;
     }
-    throw new Error(
-      'Unable to connect to the Render cloud backend. The server may be waking up (~30–50s). Please wait a moment and click Refresh.'
-    );
+
+    // Try secondary fallback route
+    try {
+      console.warn(`Primary route ${primaryUrl} failed. Retrying with fallback route ${secondaryUrl}...`);
+      const fallbackRes = await fetch(secondaryUrl, init);
+      activeBaseUrl = altBase;
+      return fallbackRes;
+    } catch (fallbackErr: any) {
+      if (fallbackErr.name === 'AbortError') {
+        throw fallbackErr;
+      }
+      throw new Error(
+        `Unable to reach backend (${err.message || 'connection failed'}). The Render server may be waking up (~30–50s). Please wait a moment and click Refresh.`
+      );
+    }
   }
 }
 
 export const api = {
   getApiUrl(): string {
-    return API_BASE;
+    return activeBaseUrl;
   },
 
   isCloud(): boolean {
@@ -62,44 +87,44 @@ export const api = {
   },
 
   async getStatus(): Promise<ApiStatus> {
-    try {
+    const checkUrl = async (base: string) => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-      const res = await fetch(`${API_BASE}/`, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        return {
-          online: false,
-          indexedChunks: 0,
-          apiUrl: API_BASE,
-          error: `Server responded with status ${res.status}`
-        };
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      try {
+        const res = await fetch(`${base}/`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          const data = await res.json();
+          return { ok: true, chunks: data.indexed_chunks ?? 0 };
+        }
+      } catch {
+        clearTimeout(timeoutId);
       }
+      return { ok: false, chunks: 0 };
+    };
 
-      const data = await res.json();
-      return {
-        online: true,
-        indexedChunks: data.indexed_chunks ?? 0,
-        apiUrl: API_BASE
-      };
-    } catch (err: any) {
-      return {
-        online: false,
-        indexedChunks: 0,
-        apiUrl: API_BASE,
-        error: err.name === 'AbortError'
-          ? 'Connecting to Render cloud server timed out (~20s).'
-          : (err.message || 'Cannot connect to Render cloud server.')
-      };
+    // 1. Try activeBaseUrl
+    const check1 = await checkUrl(activeBaseUrl);
+    if (check1.ok) {
+      return { online: true, indexedChunks: check1.chunks, apiUrl: activeBaseUrl };
     }
+
+    // 2. Try alternate route
+    const altBase = activeBaseUrl === CLOUD_URL ? PROXY_URL : CLOUD_URL;
+    const check2 = await checkUrl(altBase);
+    if (check2.ok) {
+      activeBaseUrl = altBase;
+      return { online: true, indexedChunks: check2.chunks, apiUrl: activeBaseUrl };
+    }
+
+    return {
+      online: false,
+      indexedChunks: 0,
+      apiUrl: activeBaseUrl,
+      error: 'Backend is waking up (~30–50s). Please click Refresh once awake.'
+    };
   },
 
-  /**
-   * Repeatedly pings the backend until it comes online or maxWaitMs is exceeded.
-   * Used before upload to ensure the Render instance is awake.
-   * Calls onProgress with status messages as it polls.
-   */
   async waitForBackend(
     maxWaitMs: number = 90000,
     onProgress?: (msg: string) => void
@@ -112,23 +137,14 @@ export const api = {
       const elapsed = Math.round((Date.now() - startTime) / 1000);
 
       if (attempt > 1 && onProgress) {
-        onProgress(`Waking up cloud server... (${elapsed}s elapsed)`);
+        onProgress(`Connecting to backend... (${elapsed}s)`);
       }
 
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000);
-        const res = await fetch(`${API_BASE}/`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          return true;
-        }
-      } catch {
-        // Still waking up – retry
+      const status = await this.getStatus();
+      if (status.online) {
+        return true;
       }
 
-      // Wait 3 seconds between retries
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
 
@@ -136,7 +152,7 @@ export const api = {
   },
 
   async getDocuments(): Promise<DocumentsResponse> {
-    const res = await resilientFetch(`${API_BASE}/documents`);
+    const res = await resilientFetch('/documents');
     return handleResponse<DocumentsResponse>(res);
   },
 
@@ -151,7 +167,7 @@ export const api = {
     formData.append('chunk_size', chunkSize.toString());
     formData.append('overlap', overlap.toString());
 
-    const res = await resilientFetch(`${API_BASE}/upload`, {
+    const res = await resilientFetch('/upload', {
       method: 'POST',
       body: formData,
       signal
@@ -160,14 +176,14 @@ export const api = {
   },
 
   async deleteDocument(filename: string): Promise<{ filename: string; message: string }> {
-    const res = await resilientFetch(`${API_BASE}/documents/${encodeURIComponent(filename)}`, {
+    const res = await resilientFetch(`/documents/${encodeURIComponent(filename)}`, {
       method: 'DELETE'
     });
     return handleResponse(res);
   },
 
   async clearDocuments(): Promise<{ message: string; total_documents: number; total_chunks: number }> {
-    const res = await resilientFetch(`${API_BASE}/documents/clear`, {
+    const res = await resilientFetch('/documents/clear', {
       method: 'POST'
     });
     return handleResponse(res);
@@ -178,7 +194,7 @@ export const api = {
     topK: number = 5,
     distanceThreshold: number | null = 1.5
   ): Promise<SearchResponse> {
-    const res = await resilientFetch(`${API_BASE}/search`, {
+    const res = await resilientFetch('/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -195,7 +211,7 @@ export const api = {
     topK: number = 5,
     distanceThreshold: number | null = 1.5
   ): Promise<AskResponse> {
-    const res = await resilientFetch(`${API_BASE}/ask`, {
+    const res = await resilientFetch('/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -209,7 +225,7 @@ export const api = {
 
   async reindex(chunkSize: number = 300, overlap: number = 50): Promise<ReindexResponse> {
     const res = await resilientFetch(
-      `${API_BASE}/reindex?chunk_size=${chunkSize}&overlap=${overlap}`,
+      `/reindex?chunk_size=${chunkSize}&overlap=${overlap}`,
       { method: 'POST' }
     );
     return handleResponse<ReindexResponse>(res);
