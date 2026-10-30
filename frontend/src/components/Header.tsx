@@ -1,7 +1,6 @@
 import React from 'react';
-import { BookOpen, RefreshCw, Database, Cloud, Server } from 'lucide-react';
+import { BookOpen, RefreshCw, Database } from 'lucide-react';
 import type { ApiStatus } from '../types';
-import { api, CLOUD_API_URL, LOCAL_API_URL } from '../api';
 
 interface HeaderProps {
   status: ApiStatus;
@@ -10,14 +9,6 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ status, onRefresh, isRefreshing }) => {
-  const isCloud = api.isCloud();
-
-  const handleToggleBackend = () => {
-    const nextUrl = isCloud ? LOCAL_API_URL : CLOUD_API_URL;
-    api.setApiUrl(nextUrl);
-    onRefresh();
-  };
-
   return (
     <header className="app-header">
       <div className="brand-section">
@@ -31,24 +22,13 @@ export const Header: React.FC<HeaderProps> = ({ status, onRefresh, isRefreshing 
       </div>
 
       <div className="header-meta">
-        {/* Backend Target Selector Button */}
-        <button
-          className="btn btn-secondary"
-          onClick={handleToggleBackend}
-          title={`Active API: ${status.apiUrl || api.getApiUrl()}. Click to switch target.`}
-          style={{ padding: '6px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-        >
-          {isCloud ? <Cloud size={14} color="var(--accent)" /> : <Server size={14} color="var(--accent)" />}
-          <span>{isCloud ? 'Cloud API' : 'Local API'}</span>
-        </button>
-
-        {/* Online/Offline Status Indicator */}
+        {/* Backend Online/Offline Status Indicator */}
         <div
           className={`status-badge ${status.online ? 'online' : 'offline'}`}
-          title={`Backend API: ${status.apiUrl || 'detecting...'}`}
+          title="Cloud Backend: https://semantic-document-research.onrender.com"
         >
           <span className="status-dot" />
-          <span>{status.online ? 'Online' : 'Offline'}</span>
+          <span>{status.online ? 'Backend Online' : 'Connecting...'}</span>
         </div>
 
         {status.online && (

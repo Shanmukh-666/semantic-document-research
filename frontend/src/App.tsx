@@ -56,29 +56,9 @@ export function App() {
         <div className="alert alert-danger" style={{ marginBottom: 20 }}>
           <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
-            <strong>Backend API is currently unreachable:</strong> Unable to connect to{' '}
-            <code>{status.apiUrl || api.getApiUrl()}</code>.
-            {api.isCloud() ? (
-              <div style={{ marginTop: 6, fontSize: '13px', opacity: 0.9 }}>
-                💡 <em>Cloud instance status:</em> Free Render cloud instances automatically spin down when inactive. If the server is waking up, please allow ~30–50 seconds and click the <strong>Refresh</strong> button in the header.
-              </div>
-            ) : (
-              <div style={{ marginTop: 6, fontSize: '13px', opacity: 0.9 }}>
-                Ensure your local FastAPI server is running with <code>uvicorn main:app --reload</code> in the <code>backend/</code> folder.
-              </div>
-            )}
-            <div style={{ marginTop: 10 }}>
-              <button
-                className="btn btn-secondary"
-                onClick={() => {
-                  const nextUrl = api.isCloud() ? 'http://127.0.0.1:8000' : 'https://semantic-document-research.onrender.com';
-                  api.setApiUrl(nextUrl);
-                  fetchStatusAndDocs();
-                }}
-                style={{ fontSize: '12px', padding: '4px 10px' }}
-              >
-                Switch to {api.isCloud() ? 'Local Backend (localhost:8000)' : 'Cloud Backend (Render)'}
-              </button>
+            <strong>Connecting to Render Cloud Server:</strong> The cloud backend is currently establishing connection.
+            <div style={{ marginTop: 6, fontSize: '13px', opacity: 0.9 }}>
+              💡 Free Render instances spin down when inactive. If the server is waking up, please allow ~30–45 seconds and click the <strong>Refresh</strong> button in the header.
             </div>
           </div>
         </div>
