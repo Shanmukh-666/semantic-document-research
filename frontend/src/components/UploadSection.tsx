@@ -16,10 +16,10 @@ import {
   Wifi
 } from 'lucide-react';
 import { api } from '../api';
-import type { UploadResponse, ReindexResponse } from '../types';
+import type { UploadResponse, ReindexResponse, DocumentItem } from '../types';
 
 interface UploadSectionProps {
-  onSuccess: () => void;
+  onSuccess: (uploadedDoc?: DocumentItem) => void;
   onNavigateTab?: (tab: 'ask' | 'search' | 'library') => void;
 }
 
@@ -135,7 +135,11 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
       if (!cancelledRef.current) {
         setLastUploaded(res);
         setFeedback(null);
-        onSuccess();
+        onSuccess({
+          document_name: res.filename,
+          chunk_count: res.chunks_stored,
+          page_count: res.pages
+        });
       }
     } catch (err: any) {
       if (err.name === 'AbortError' || cancelledRef.current) {

@@ -7,12 +7,16 @@ interface DocumentLibraryProps {
   documents: DocumentItem[];
   isLoading: boolean;
   onRefresh: () => void;
+  onDeleteDocument?: (filename: string) => void;
+  onClearAll?: () => void;
 }
 
 export const DocumentLibrary: React.FC<DocumentLibraryProps> = ({
   documents,
   isLoading,
-  onRefresh
+  onRefresh,
+  onDeleteDocument,
+  onClearAll
 }) => {
   const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
 
@@ -24,6 +28,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = ({
     setDeletingDoc(filename);
     try {
       await api.deleteDocument(filename);
+      onDeleteDocument?.(filename);
       onRefresh();
     } catch (err: any) {
       alert(`Failed to delete document: ${err.message}`);
@@ -38,6 +43,7 @@ export const DocumentLibrary: React.FC<DocumentLibraryProps> = ({
     }
     try {
       await api.clearDocuments();
+      onClearAll?.();
       onRefresh();
     } catch (err: any) {
       alert(`Failed to clear library: ${err.message}`);

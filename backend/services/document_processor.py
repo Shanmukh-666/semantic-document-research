@@ -30,7 +30,13 @@ def extract_text_from_pdf(file_path: str) -> List[Dict[str, Any]]:
                 "text": cleaned_text
             })
     finally:
-        doc.close()
+        try:
+            doc.close()
+        except Exception:
+            pass
+        del doc
+        import gc
+        gc.collect()
 
     return pages
 
@@ -51,19 +57,24 @@ def extract_text_from_docx(file_path: str) -> List[Dict[str, Any]]:
 
     text_parts: List[str] = []
 
-    for paragraph in doc.paragraphs:
-        text = paragraph.text.strip()
-        if text:
-            text_parts.append(text)
+    try:
+        for paragraph in doc.paragraphs:
+            text = paragraph.text.strip()
+            if text:
+                text_parts.append(text)
 
-    # Also capture table contents if present
-    for table in doc.tables:
-        for row in table.rows:
-            row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-            if row_cells:
-                text_parts.append(" | ".join(row_cells))
+        # Also capture table contents if present
+        for table in doc.tables:
+            for row in table.rows:
+                row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if row_cells:
+                    text_parts.append(" | ".join(row_cells))
 
-    full_text = "\n\n".join(text_parts)
+        full_text = "\n\n".join(text_parts)
+    finally:
+        del doc
+        import gc
+        gc.collect()
 
     return [
         {

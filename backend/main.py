@@ -192,11 +192,17 @@ def upload_document(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to store chunks in vector store: {str(e)}")
 
+    pages_count = len(pages)
+    chunks_count = len(chunks)
+    del chunks, pages
+    import gc
+    gc.collect()
+
     return {
         "filename": filename,
         "file_type": ext[1:].upper(),
-        "pages": len(pages),
-        "chunks_created": len(chunks),
+        "pages": pages_count,
+        "chunks_created": chunks_count,
         "chunks_stored": stored_count,
         "message": "Document processed and indexed successfully"
     }

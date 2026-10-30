@@ -33,8 +33,10 @@ def _get_onnx_model():
         tok.enable_truncation(max_length=256)
 
         opts = ort.SessionOptions()
+        opts.enable_cpu_mem_arena = False
         opts.intra_op_num_threads = 1
         opts.inter_op_num_threads = 1
+        opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         sess = ort.InferenceSession(model_path, sess_options=opts, providers=["CPUExecutionProvider"])
 
         _tokenizer = tok
@@ -59,7 +61,7 @@ def _get_st_model():
 def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
     """
     Generates normalized 384-dimensional embeddings for all-MiniLM-L6-v2.
-    Uses ultra-lightweight ONNX runtime first (<180MB RAM), falling back to SentenceTransformers.
+    Uses ultra-lightweight ONNX runtime with arena disabled to stay strictly under 220MB RAM.
     """
     if isinstance(texts, str):
         texts = [texts]
@@ -73,7 +75,7 @@ def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
     try:
         sess, tok = _get_onnx_model()
         all_embeddings = []
-        batch_size = 16
+        batch_size = 8
 
         for i in range(0, len(cleaned), batch_size):
             batch_texts = cleaned[i:i + batch_size]
@@ -99,7 +101,10 @@ def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
             norm_emb = mean_pooled / np.clip(norm, a_min=1e-12, a_max=None)
             all_embeddings.append(norm_emb)
 
+            del enc, in_ids, in_mask, in_type, outs, token_emb, mask_expanded, sum_emb, sum_mask, mean_pooled, norm
+
         result = np.vstack(all_embeddings)
+        del all_embeddings
         gc.collect()
         return result
 
