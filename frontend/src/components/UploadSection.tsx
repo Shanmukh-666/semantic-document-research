@@ -21,9 +21,10 @@ import type { UploadResponse, ReindexResponse, DocumentItem } from '../types';
 interface UploadSectionProps {
   onSuccess: (uploadedDoc?: DocumentItem) => void;
   onNavigateTab?: (tab: 'ask' | 'search' | 'library') => void;
+  isBackendOnline?: boolean;
 }
 
-export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavigateTab }) => {
+export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavigateTab, isBackendOnline }) => {
   const [chunkSize, setChunkSize] = useState<number>(300);
   const [overlap, setOverlap] = useState<number>(50);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -96,31 +97,33 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
     setUploadingFileName(file.name);
     setUploadingFileSize(formatFileSize(file.size));
 
-    // Step 1: Wake up the Render backend first
-    setIsWakingUp(true);
-    setWakeUpMessage('Connecting to cloud server...');
+    // Only attempt wake-up if backend is not already confirmed online
+    if (!isBackendOnline) {
+      setIsWakingUp(true);
+      setWakeUpMessage('Checking cloud server connection...');
 
-    const isOnline = await api.waitForBackend(90000, (msg) => {
-      if (!cancelledRef.current) {
-        setWakeUpMessage(msg);
-      }
-    });
-
-    if (cancelledRef.current) return;
-
-    if (!isOnline) {
-      setIsWakingUp(false);
-      setFeedback({
-        type: 'error',
-        message: 'Could not connect to the cloud server after 90 seconds. Please check your internet connection and try again.'
+      const isOnline = await api.waitForBackend(45000, (msg) => {
+        if (!cancelledRef.current) {
+          setWakeUpMessage(msg);
+        }
       });
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
+
+      if (cancelledRef.current) return;
+
+      if (!isOnline) {
+        setIsWakingUp(false);
+        setFeedback({
+          type: 'error',
+          message: 'The cloud server is currently waking up (~30–50s). Please wait a moment and try again.'
+        });
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        return;
+      }
+
+      setIsWakingUp(false);
     }
 
-    setIsWakingUp(false);
-
-    // Step 2: Upload the file
+    // Step 2: Upload the file directly
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setIsUploading(true);

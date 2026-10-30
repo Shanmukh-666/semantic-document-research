@@ -125,7 +125,7 @@ export const api = {
     }
 
     // 2. Try proxy as fallback
-    const check2 = await checkUrl(`${PROXY_URL}/api`);
+    const check2 = await checkUrl(PROXY_URL);
     if (check2.ok) {
       activeBaseUrl = PROXY_URL;
       return { online: true, indexedChunks: check2.chunks, apiUrl: PROXY_URL };

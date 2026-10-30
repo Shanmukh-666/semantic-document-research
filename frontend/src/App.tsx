@@ -37,6 +37,7 @@ export function App() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [isLoadingDocs, setIsLoadingDocs] = useState<boolean>(false);
   const [isWakingUp, setIsWakingUp] = useState<boolean>(false);
+  const [isInitialCheckDone, setIsInitialCheckDone] = useState<boolean>(false);
   const wakeUpAttemptedRef = useRef<boolean>(false);
 
   const loadDocuments = async () => {
@@ -107,24 +108,28 @@ export function App() {
     if (wakeUpAttemptedRef.current) return;
     wakeUpAttemptedRef.current = true;
 
-    const s = await api.getStatus();
-    setStatus(s);
+    try {
+      const s = await api.getStatus();
+      setStatus(s);
 
-    if (s.online) {
-      await loadDocuments();
-      return;
-    }
-
-    setIsWakingUp(true);
-    const isOnline = await api.waitForBackend(90000);
-    setIsWakingUp(false);
-
-    if (isOnline) {
-      const s2 = await api.getStatus();
-      setStatus(s2);
-      if (s2.online) {
+      if (s.online) {
         await loadDocuments();
+        return;
       }
+
+      setIsWakingUp(true);
+      const isOnline = await api.waitForBackend(90000);
+      setIsWakingUp(false);
+
+      if (isOnline) {
+        const s2 = await api.getStatus();
+        setStatus(s2);
+        if (s2.online) {
+          await loadDocuments();
+        }
+      }
+    } finally {
+      setIsInitialCheckDone(true);
     }
   };
 
@@ -132,14 +137,17 @@ export function App() {
     wakeBackgroundBackend();
 
     // Periodic lightweight status poll every 20s
-    const interval = setInterval(() => {
-      api.getStatus().then(s => {
-        setStatus(prev => {
-          if (!prev.online && s.online) {
-            loadDocuments();
-          }
-          return s;
-        });
+    const interval = setInterval(async () => {
+      const s = await api.getStatus();
+      setStatus(prev => {
+        // If we were already confirmed online, do not flap to offline on a single transient poll hiccup
+        if (!s.online && prev.online) {
+          return prev;
+        }
+        if (!prev.online && s.online) {
+          loadDocuments();
+        }
+        return s;
       });
     }, 20000);
     return () => clearInterval(interval);
@@ -166,7 +174,7 @@ export function App() {
         </div>
       )}
 
-      {!status.online && !isWakingUp && (
+      {!status.online && !isWakingUp && isInitialCheckDone && (
         <div className="alert alert-danger" style={{ marginBottom: 20 }}>
           <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
@@ -217,7 +225,11 @@ export function App() {
 
       {activeTab === 'library' && (
         <div>
-          <UploadSection onSuccess={handleDocumentUploaded} onNavigateTab={setActiveTab} />
+          <UploadSection
+            onSuccess={handleDocumentUploaded}
+            onNavigateTab={setActiveTab}
+            isBackendOnline={status.online}
+          />
           <DocumentLibrary
             documents={documents}
             isLoading={isLoadingDocs}
