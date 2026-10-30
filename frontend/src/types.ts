@@ -67,5 +67,7 @@ export interface ReindexResponse {
 export interface ApiStatus {
   online: boolean;
   indexedChunks: number;
+  apiUrl?: string;
   error?: string;
 }
+

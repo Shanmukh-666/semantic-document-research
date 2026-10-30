@@ -12,7 +12,7 @@ const isLocalhost =
   (window.location.hostname === 'localhost' ||
    window.location.hostname === '127.0.0.1');
 
-const API_BASE =
+export const API_BASE =
   import.meta.env.VITE_API_URL ||
   (isLocalhost
     ? 'http://localhost:8000'
@@ -38,26 +38,41 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  getApiUrl(): string {
+    return API_BASE;
+  },
+
+  isCloud(): boolean {
+    return !isLocalhost && API_BASE.includes('onrender.com');
+  },
+
   async getStatus(): Promise<ApiStatus> {
     try {
-      const res = await fetch(`${API_BASE}/`);
-      if (!res.ok) throw new Error('Backend responded with error');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(`${API_BASE}/`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) throw new Error(`Backend responded with status ${res.status}`);
       const data = await res.json();
       return {
         online: true,
-        indexedChunks: data.indexed_chunks ?? 0
+        indexedChunks: data.indexed_chunks ?? 0,
+        apiUrl: API_BASE
       };
     } catch (err: any) {
       return {
         online: false,
         indexedChunks: 0,
-        error: err.message || 'Cannot connect to backend'
+        apiUrl: API_BASE,
+        error: err.name === 'AbortError' ? 'Connecting to backend timed out' : (err.message || 'Cannot connect to backend')
       };
     }
   },
 
   async getDocuments(): Promise<DocumentsResponse> {
     const res = await fetch(`${API_BASE}/documents`);
+
     return handleResponse<DocumentsResponse>(res);
   },
 

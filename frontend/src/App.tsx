@@ -54,13 +54,23 @@ export function App() {
       {/* Backend Disconnected Alert */}
       {!status.online && (
         <div className="alert alert-danger" style={{ marginBottom: 20 }}>
-          <AlertCircle size={18} />
+          <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
           <div>
-            <strong>Backend API is currently offline:</strong> Unable to connect to FastAPI server at <code>http://localhost:8000</code>.
-            Ensure the backend is running with <code>uvicorn main:app --reload</code> in the <code>backend/</code> folder.
+            <strong>Backend API is currently unreachable:</strong> Unable to connect to{' '}
+            <code>{status.apiUrl || api.getApiUrl()}</code>.
+            {api.isCloud() ? (
+              <div style={{ marginTop: 6, fontSize: '13px', opacity: 0.9 }}>
+                💡 <em>Cloud instance status:</em> Free Render cloud instances automatically spin down when inactive. If the server is waking up, please allow ~30–50 seconds and click the <strong>Refresh</strong> button in the header.
+              </div>
+            ) : (
+              <div style={{ marginTop: 6, fontSize: '13px', opacity: 0.9 }}>
+                Ensure your local FastAPI server is running with <code>uvicorn main:app --reload</code> in the <code>backend/</code> folder.
+              </div>
+            )}
           </div>
         </div>
       )}
+
 
       {/* Navigation Tabs */}
       <nav className="tabs-nav">
