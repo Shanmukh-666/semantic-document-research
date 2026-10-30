@@ -29,22 +29,14 @@ app = FastAPI(
     version="1.1.0"
 )
 
-# Enable CORS for local development and deployed frontend on Vercel
-allowed_origins = [
-    "https://semantic-document-research.vercel.app",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
-
+# Permissive CORS allowing cross-origin requests from Vercel, localhost, and preview URLs
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 BASE_DIR = Path(__file__).resolve().parent

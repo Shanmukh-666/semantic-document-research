@@ -4,7 +4,15 @@ import { MessageSquareText, Sparkles, AlertTriangle, FileText, ChevronDown, Chev
 import { api } from '../api';
 import type { AskResponse, ChunkResult } from '../types';
 
-export const AskWorkspace: React.FC = () => {
+interface AskWorkspaceProps {
+  documentCount?: number;
+  onNavigateToUpload?: () => void;
+}
+
+export const AskWorkspace: React.FC<AskWorkspaceProps> = ({
+  documentCount,
+  onNavigateToUpload
+}) => {
   const [question, setQuestion] = useState<string>('');
   const [topK, setTopK] = useState<number>(5);
   const [isAsking, setIsAsking] = useState<boolean>(false);
@@ -47,6 +55,24 @@ export const AskWorkspace: React.FC = () => {
       <p className="card-description">
         Ask a specific question. The system retrieves relevant passages from your indexed documents and provides them to the LLM to synthesize an evidence-grounded answer with citations.
       </p>
+
+      {/* Empty Library Notice */}
+      {documentCount === 0 && onNavigateToUpload && (
+        <div className="alert alert-info" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FileText size={16} />
+            <span>Document library is empty. Upload a research PDF or DOCX file to ask questions!</span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onNavigateToUpload}
+            style={{ fontSize: '12px', padding: '4px 12px' }}
+          >
+            Upload Document
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <form onSubmit={handleAsk}>

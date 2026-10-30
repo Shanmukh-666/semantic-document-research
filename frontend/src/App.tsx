@@ -67,6 +67,19 @@ export function App() {
                 Ensure your local FastAPI server is running with <code>uvicorn main:app --reload</code> in the <code>backend/</code> folder.
               </div>
             )}
+            <div style={{ marginTop: 10 }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  const nextUrl = api.isCloud() ? 'http://127.0.0.1:8000' : 'https://semantic-document-research.onrender.com';
+                  api.setApiUrl(nextUrl);
+                  fetchStatusAndDocs();
+                }}
+                style={{ fontSize: '12px', padding: '4px 10px' }}
+              >
+                Switch to {api.isCloud() ? 'Local Backend (localhost:8000)' : 'Cloud Backend (Render)'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -100,7 +113,12 @@ export function App() {
       </nav>
 
       {/* Tab Panels */}
-      {activeTab === 'ask' && <AskWorkspace />}
+      {activeTab === 'ask' && (
+        <AskWorkspace
+          documentCount={documents.length}
+          onNavigateToUpload={() => setActiveTab('library')}
+        />
+      )}
 
       {activeTab === 'search' && <SearchWorkspace />}
 
