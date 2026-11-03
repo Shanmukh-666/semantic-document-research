@@ -605,8 +605,3 @@ These features are outside the current project scope.
 
 ---
 
-## Author
-
-**Semantic Document Research**
-
-Academic NLP Project
