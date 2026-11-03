@@ -35,6 +35,11 @@ async function handleResponse<T>(res: Response): Promise<T> {
         'The cloud backend is currently waking up or recovering. Please allow ~20–30 seconds and click Refresh.'
       );
     }
+    if (res.status === 503) {
+      throw new Error(
+        'The cloud backend is temporarily unavailable while Render is starting or recovering. Please wait 20–30 seconds and try again.'
+      );
+    }
     let errorDetail = `Request failed with status ${res.status}`;
     try {
       const errorJson = await res.json();

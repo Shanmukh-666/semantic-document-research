@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -95,6 +95,13 @@ def root():
         "version": "1.1.0",
         "indexed_chunks": get_collection_count()
     }
+
+
+@app.head("/")
+@app.head("/api")
+@app.head("/api/")
+def root_probe():
+    return Response(status_code=200)
 
 
 @app.get("/documents")

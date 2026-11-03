@@ -27,6 +27,11 @@ def test_root():
     assert "version" in data
 
 
+def test_root_probe():
+    response = client.head("/")
+    assert response.status_code == 200
+
+
 def test_upload_invalid_extension():
     fake_file = ("bad.txt", b"plain text is not supported", "text/plain")
     response = client.post("/upload", files={"file": fake_file})
