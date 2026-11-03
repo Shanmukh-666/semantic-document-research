@@ -186,26 +186,35 @@ export const api = {
     formData.append('chunk_size', chunkSize.toString());
     formData.append('overlap', overlap.toString());
 
-    // Send upload directly to Render cloud URL first to avoid Vercel 15s edge proxy timeout
+    // Send upload directly to Render cloud URL first to avoid Vercel 15s edge proxy timeout.
+    // A sleeping/restarting Render instance can return 502/503 before it accepts requests.
     try {
-      const res = await fetch(`${CLOUD_URL}/upload`, {
-        method: 'POST',
-        body: formData,
-        signal
-      });
-      return await handleResponse<UploadResponse>(res);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const res = await fetch(`${CLOUD_URL}/upload`, {
+          method: 'POST',
+          body: formData,
+          signal
+        });
+        if (res.status !== 502 && res.status !== 503) {
+          return await handleResponse<UploadResponse>(res);
+        }
+        if (attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
     } catch (directErr: any) {
       if (directErr.name === 'AbortError') {
         throw directErr;
       }
       console.warn('Direct upload to Render failed, trying fallback route:', directErr);
-      const res = await resilientFetch('/upload', {
-        method: 'POST',
-        body: formData,
-        signal
-      });
-      return await handleResponse<UploadResponse>(res);
     }
+
+    const res = await resilientFetch('/upload', {
+      method: 'POST',
+      body: formData,
+      signal
+    });
+    return await handleResponse<UploadResponse>(res);
   },
 
   async deleteDocument(filename: string): Promise<{ filename: string; message: string }> {
