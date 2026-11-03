@@ -215,9 +215,7 @@ export function App() {
 
       {/* Tab Panels */}
       {activeTab === 'ask' && (
-        <AskWorkspace
-          documentCount={documents.length}
-        />
+        <AskWorkspace />
       )}
 
       {activeTab === 'search' && <SearchWorkspace />}
