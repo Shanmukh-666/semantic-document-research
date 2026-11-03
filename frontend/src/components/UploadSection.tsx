@@ -259,7 +259,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
           <span className="control-value">{overlap} words</span>
         </div>
 
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="controls-spacer" style={{ marginLeft: 'auto' }}>
           <button
             className="btn btn-secondary"
             onClick={handleReindex}

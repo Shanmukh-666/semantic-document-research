@@ -97,7 +97,7 @@ export const AskWorkspace: React.FC<AskWorkspaceProps> = () => {
           <span className="control-value">{topK} chunks</span>
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: 'var(--text-subtle)' }}>
+        <div className="controls-spacer" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: 'var(--text-subtle)' }}>
           <Info size={13} />
           <span>LLM is instructed to strictly cite retrieved sources and admit insufficient evidence</span>
         </div>

@@ -103,7 +103,7 @@ export const SearchWorkspace: React.FC = () => {
           <label htmlFor="enableThreshold">Filter L2 &le; 1.5</label>
         </div>
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: 'var(--text-subtle)' }}>
+        <div className="controls-spacer" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: '12px', color: 'var(--text-subtle)' }}>
           <Info size={13} />
           <span>Metric: L2 distance (lower = closer match; raw distance is not a probability percentage)</span>
         </div>
