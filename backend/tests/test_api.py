@@ -32,6 +32,17 @@ def test_upload_invalid_extension():
     assert "Unsupported file format" in response.json()["detail"]
 
 
+def test_upload_rejects_oversized_file(monkeypatch):
+    import main
+    monkeypatch.setattr(main, "MAX_UPLOAD_SIZE", 8)
+    response = client.post(
+        "/upload",
+        files={"file": ("large.pdf", b"0123456789", "application/pdf")}
+    )
+    assert response.status_code == 413
+    assert "upload limit" in response.json()["detail"]
+
+
 def test_upload_valid_pdf():
     pdf_path = DATA_DIR / "01_NLP_in_Healthcare.pdf"
     assert pdf_path.exists()
@@ -52,6 +63,17 @@ def test_upload_valid_pdf():
     doc_res = client.get("/documents")
     assert doc_res.status_code == 200
     assert doc_res.json()["total_documents"] == 1
+
+
+def test_upload_valid_docx():
+    docx_path = DATA_DIR / "02_NLP_in_Education.docx"
+    with open(docx_path, "rb") as f:
+        response = client.post(
+            "/upload",
+            files={"file": (docx_path.name, f, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+        )
+    assert response.status_code == 200
+    assert response.json()["chunks_stored"] >= 1
 
 
 def test_search_endpoint():

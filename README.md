@@ -110,7 +110,8 @@ A pretrained Sentence Transformer model is used to convert text into dense vecto
 Model:
 
 ```text
-all-MiniLM-L6-v2
+all-MiniLM-L6-v2, executed through a single CPU-only ONNX Runtime session.
+The backend does not initialize PyTorch or load a SentenceTransformer fallback.
 ```
 
 This allows semantically similar sentences to have similar vector representations even when their wording is different.
@@ -148,7 +149,7 @@ The LLM is instructed to answer using the retrieved document context rather than
 | API Testing Interface | Swagger UI            |
 | PDF Processing        | PyMuPDF               |
 | DOCX Processing       | python-docx           |
-| Embedding Model       | Sentence Transformers |
+| Embedding Model       | all-MiniLM-L6-v2 via ONNX Runtime |
 | Embedding Model       | all-MiniLM-L6-v2      |
 | Vector Database       | ChromaDB              |
 | LLM                   | Google Gemini         |
@@ -402,6 +403,42 @@ Or from the `backend/` directory:
 cd backend
 python -m uvicorn main:app --reload --port 8000
 ```
+
+For Render Free (512 MB), use exactly one worker and do not use `--reload`:
+
+```bash
+cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+```
+
+#### Render Free memory and storage limits
+
+Document ingestion is deliberately sequential. PDF pages and DOCX records are
+consumed incrementally, embeddings are generated in batches, and Chroma inserts
+are bounded. A per-process semaphore prevents concurrent ingestion requests from
+loading multiple pipelines. The default limits are:
+
+| Variable | Default |
+| --- | ---: |
+| `MAX_UPLOAD_SIZE_MB` | `10` |
+| `MAX_FILES_PER_REQUEST` | `1` |
+| `MAX_PAGE_COUNT` | `200` |
+| `MAX_CONCURRENT_INGESTIONS` | `1` |
+| `EMBEDDING_BATCH_SIZE` | `8` |
+| `CHROMA_INSERT_BATCH_SIZE` | `32` |
+
+These are conservative starting values, not a guarantee that every document
+fits in 512 MB. The backend logs memory-stage markers for startup, model load,
+extraction, embedding batches, Chroma insertion, and cleanup. Validate RSS on
+the deployed service with representative documents before increasing limits.
+Oversized uploads are rejected with HTTP 413, and failed indexing does not
+delete the previous version of a document.
+
+The application still uses ChromaDB in `backend/chroma_db` via
+`PersistentClient`. Render Free has an ephemeral filesystem: local ChromaDB
+indexes are lost after restart, redeploy, or spin-down. This project does not
+claim durable persistence and does not retain original uploads. Durable
+ChromaDB storage requires a remotely hosted ChromaDB-compatible service or a
+Render plan with a persistent disk; no external service is enabled by default.
 
 * API Root: `http://localhost:8000`
 * Interactive API Documentation (Swagger UI): `http://localhost:8000/docs`

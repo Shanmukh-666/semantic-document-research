@@ -1,7 +1,8 @@
 import os
-import shutil
 import tempfile
 import gc
+import logging
+import threading
 from pathlib import Path
 from typing import Optional, List
 
@@ -10,11 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from services.document_processor import (
+    iter_text_from_pdf,
+    iter_text_from_docx,
     extract_text_from_pdf,
     extract_text_from_docx,
     extract_text_from_txt
 )
-from services.chunker import create_chunks
+from services.chunker import create_chunks, iter_chunks
+from services.embedding_service import _log_memory
 from services.vector_store import (
     add_chunks,
     search_chunks,
@@ -45,6 +49,22 @@ app.add_middleware(
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
+logger = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        logger.warning("Invalid %s; using %s", name, default)
+        return default
+
+
+MAX_UPLOAD_SIZE = _env_int("MAX_UPLOAD_SIZE_MB", 10) * 1024 * 1024
+MAX_PAGE_COUNT = _env_int("MAX_PAGE_COUNT", 200)
+MAX_FILES_PER_REQUEST = _env_int("MAX_FILES_PER_REQUEST", 1)
+MAX_CONCURRENT_INGESTIONS = _env_int("MAX_CONCURRENT_INGESTIONS", 1)
+INGESTION_LIMIT = threading.BoundedSemaphore(MAX_CONCURRENT_INGESTIONS)
 
 
 class SearchRequest(BaseModel):
@@ -125,6 +145,8 @@ def upload_document(
     Uploads, extracts, sentence-chunks, and indexes a PDF or DOCX file.
     Replaces existing records if the document was previously uploaded.
     """
+    if MAX_FILES_PER_REQUEST != 1:
+        logger.warning("The upload endpoint accepts one file per request; MAX_FILES_PER_REQUEST is informational.")
     if chunk_size <= 0:
         raise HTTPException(status_code=400, detail="chunk_size must be a positive integer")
     if overlap < 0 or overlap >= chunk_size:
@@ -141,74 +163,80 @@ def upload_document(
         )
 
 
-    # Process in a temporary file and delete immediately — zero permanent file retention on server!
+    if not INGESTION_LIMIT.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="Another document is being processed. Please retry shortly.")
+
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp_file:
-            shutil.copyfileobj(file.file, tmp_file)
             tmp_path = tmp_file.name
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process uploaded file: {str(e)}")
+            total_bytes = 0
+            while True:
+                block = file.file.read(1024 * 1024)
+                if not block:
+                    break
+                total_bytes += len(block)
+                if total_bytes > MAX_UPLOAD_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds the {MAX_UPLOAD_SIZE // (1024 * 1024)} MB upload limit."
+                    )
+                tmp_file.write(block)
+        _log_memory(f"before_ingestion:{filename}")
+        page_count = 0
+        text_page_count = 0
 
-    try:
-        if ext == ".pdf":
-            pages = extract_text_from_pdf(tmp_path)
-        else:
-            pages = extract_text_from_docx(tmp_path)
+        def page_stream():
+            nonlocal page_count, text_page_count
+            extractor = iter_text_from_pdf if ext == ".pdf" else iter_text_from_docx
+            for page in extractor(tmp_path, max_pages=MAX_PAGE_COUNT):
+                page_count += 1
+                if page.get("text", "").strip():
+                    text_page_count += 1
+                _log_memory(f"extraction_page_{page_count}:{filename}")
+                yield page
+
+        chunks_count = 0
+
+        def chunk_stream():
+            nonlocal chunks_count
+            for chunk in iter_chunks(
+                page_stream(),
+                chunk_size=chunk_size,
+                overlap=overlap,
+                document_name=filename
+            ):
+                chunks_count += 1
+                yield chunk
+
+        stored_count = add_chunks(chunk_stream(), filename)
+        _log_memory(f"after_chroma_insertion:{filename}")
+        if page_count == 0 or text_page_count == 0 or chunks_count == 0:
+            raise HTTPException(status_code=422, detail="No valid text chunks could be produced from this document.")
+        return {
+            "filename": filename,
+            "file_type": ext[1:].upper(),
+            "pages": page_count,
+            "chunks_created": chunks_count,
+            "chunks_stored": stored_count,
+            "message": "Document processed and indexed successfully"
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"Document processing failed: {e}")
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Text extraction failed: {str(e)}")
+        logger.exception("Document processing failed for %s", filename)
+        raise HTTPException(status_code=500, detail=f"Document processing failed: {e}")
     finally:
-        # Immediately delete the physical file from disk
-        if tmp_path and os.path.exists(tmp_path):
-            try:
+        try:
+            file.file.close()
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
-            except Exception:
-                pass
-
-
-    if not pages or not any(p.get("text", "").strip() for p in pages):
-        raise HTTPException(
-            status_code=422,
-            detail="The document was processed, but no extractable text was found."
-        )
-
-    # Sentence/paragraph aware chunking
-    try:
-        chunks = create_chunks(
-            pages,
-            chunk_size=chunk_size,
-            overlap=overlap,
-            document_name=filename
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Chunking failed: {str(e)}")
-
-    if not chunks:
-        raise HTTPException(
-            status_code=422,
-            detail="No valid text chunks could be produced from this document."
-        )
-
-    # Store in ChromaDB
-    try:
-        stored_count = add_chunks(chunks, filename)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to store chunks in vector store: {str(e)}")
-
-    pages_count = len(pages)
-    chunks_count = len(chunks)
-    del chunks, pages
-    import gc
-    gc.collect()
-
-    return {
-        "filename": filename,
-        "file_type": ext[1:].upper(),
-        "pages": pages_count,
-        "chunks_created": chunks_count,
-        "chunks_stored": stored_count,
-        "message": "Document processed and indexed successfully"
-    }
+            gc.collect()
+            _log_memory(f"after_cleanup:{filename}")
+            INGESTION_LIMIT.release()
 
 
 @app.post("/search")
@@ -379,7 +407,12 @@ def startup_event():
     Server startup handler.
     Starts with a clean slate; sample documents are not automatically indexed by default.
     """
-    print("Semantic Document Research API started successfully.")
+    _log_memory("startup_before_model_load")
+    logger.info(
+        "Semantic Document Research API started; memory stage=before_model_load "
+        "limits upload_mb=%s pages=%s concurrency=%s",
+        MAX_UPLOAD_SIZE // (1024 * 1024), MAX_PAGE_COUNT, MAX_CONCURRENT_INGESTIONS
+    )
 
 
 @app.post("/documents/clear")

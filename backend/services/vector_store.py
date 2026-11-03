@@ -1,5 +1,7 @@
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+import os
+import uuid
+from typing import Iterable, List, Dict, Any, Optional
 import gc
 import logging
 import chromadb
@@ -74,6 +76,8 @@ def get_collection(force_refresh: bool = False):
 
     # Verify collection handle is active and responding
     try:
+        # Re-fetch the handle so a collection recreated by reset_collection is not stale.
+        _collection = get_client().get_collection(name="documents")
         _ = _collection.count()
         return _collection
     except Exception:
@@ -86,54 +90,70 @@ def get_collection(force_refresh: bool = False):
         return _collection
 
 
-def add_chunks(chunks: List[Dict[str, Any]], document_name: str) -> int:
+def add_chunks(chunks: Iterable[Dict[str, Any]], document_name: str) -> int:
     """
     Adds chunks to ChromaDB. Replaces existing chunks for the same document to prevent duplicate IDs.
     Features automatic recovery if vector store connection is stale.
     """
-    if not chunks:
-        return 0
+    batch_size = max(1, int(os.getenv("CHROMA_INSERT_BATCH_SIZE", "32")))
+    pending = []
+    inserted_ids: List[str] = []
+    stored_count = 0
+    staging_prefix = f"__staged__{uuid.uuid4().hex}_{document_name}"
 
-    texts = [chunk["text"] for chunk in chunks]
-    embeddings = generate_embeddings(texts)
-
-    ids: List[str] = []
-    metadatas: List[Dict[str, Any]] = []
-
-    for chunk in chunks:
-        chunk_id = f"{document_name}_{chunk['chunk_id']}"
-        ids.append(chunk_id)
-        metadatas.append({
-            "document_name": document_name,
-            "page_number": int(chunk.get("page_number", 1)),
-            "chunk_id": int(chunk.get("chunk_id", 0)),
-            "word_count": int(chunk.get("word_count", len(chunk["text"].split())))
-        })
-
-    def _execute_add(col):
-        try:
-            col.delete(where={"document_name": document_name})
-        except Exception:
-            pass
-
-        col.add(
-            ids=ids,
-            embeddings=embeddings.tolist(),
-            documents=texts,
-            metadatas=metadatas
-        )
-
-    # Attempt 1
     try:
         col = get_collection()
-        _execute_add(col)
-        return len(chunks)
+        old_ids = col.get(where={"document_name": document_name}, include=[]).get("ids", [])
+        for chunk in chunks:
+            pending.append(chunk)
+            if len(pending) >= batch_size:
+                stored_count += _insert_chunk_batch(col, pending, document_name, inserted_ids, staging_prefix)
+                pending.clear()
+        if pending:
+            stored_count += _insert_chunk_batch(col, pending, document_name, inserted_ids, staging_prefix)
+
+        if stored_count == 0:
+            return 0
+        # Keep the old version available until every new batch has succeeded.
+        if old_ids:
+            col.delete(ids=old_ids)
+        return stored_count
     except Exception as first_err:
-        logger.warning(f"First attempt to add chunks failed ({first_err}); retrying with fresh vector store handle...")
-        # Attempt 2 with fresh client/collection
-        col = get_collection(force_refresh=True)
-        _execute_add(col)
-        return len(chunks)
+        logger.warning("Chunk insertion failed; removing staged records: %s", first_err)
+        try:
+            if inserted_ids:
+                get_collection().delete(ids=inserted_ids)
+        except Exception as cleanup_err:
+            logger.error("Could not remove staged vector records: %s", cleanup_err)
+        raise RuntimeError(f"Failed to store chunks in vector store: {first_err}") from first_err
+
+
+def _insert_chunk_batch(
+    col: Any,
+    chunks: List[Dict[str, Any]],
+    document_name: str,
+    inserted_ids: List[str],
+    staging_prefix: str
+) -> int:
+    texts = [chunk["text"] for chunk in chunks]
+    embeddings = generate_embeddings(texts)
+    ids = [f"{staging_prefix}_{chunk['chunk_id']}" for chunk in chunks]
+    metadatas = [{
+        "document_name": document_name,
+        "page_number": int(chunk.get("page_number", 1)),
+        "chunk_id": int(chunk.get("chunk_id", 0)),
+        "word_count": int(chunk.get("word_count", len(chunk["text"].split())))
+    } for chunk in chunks]
+    col.add(
+        ids=ids,
+        embeddings=embeddings.tolist(),
+        documents=texts,
+        metadatas=metadatas
+    )
+    inserted_ids.extend(ids)
+    del texts, embeddings, ids, metadatas
+    gc.collect()
+    return len(chunks)
 
 
 def search_chunks(
@@ -262,6 +282,8 @@ def reset_collection() -> int:
             client.delete_collection("documents")
         except Exception:
             pass
+        _reset_client()
+        client = get_client(force_new=True)
         global _collection
         _collection = client.create_collection(
             name="documents",
@@ -269,6 +291,7 @@ def reset_collection() -> int:
         )
         return 0
     except Exception:
+        _reset_client()
         client = get_client(force_new=True)
         try:
             client.delete_collection("documents")

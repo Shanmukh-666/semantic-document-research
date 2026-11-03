@@ -1,5 +1,5 @@
 import re
-from typing import List, Dict, Any, Optional
+from typing import Iterator, List, Dict, Any, Optional
 
 
 def split_into_sentences(text: str) -> List[str]:
@@ -142,3 +142,32 @@ def create_chunks(
                 chunk_id += 1
 
     return all_chunks
+
+
+def iter_chunks(
+    pages: Iterator[Dict[str, Any]],
+    chunk_size: int = 300,
+    overlap: int = 50,
+    document_name: Optional[str] = None
+) -> Iterator[Dict[str, Any]]:
+    """Create chunks one page at a time so a whole document is not retained."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be a positive integer")
+    if overlap < 0:
+        raise ValueError("overlap must be non-negative")
+    if overlap >= chunk_size:
+        raise ValueError("overlap must be strictly less than chunk_size")
+
+    next_chunk_id = 1
+    for page in pages:
+        page_chunks = create_chunks(
+            [page],
+            chunk_size=chunk_size,
+            overlap=overlap,
+            document_name=document_name
+        )
+        for chunk in page_chunks:
+            chunk["chunk_id"] = next_chunk_id
+            next_chunk_id += 1
+            yield chunk
+        del page_chunks

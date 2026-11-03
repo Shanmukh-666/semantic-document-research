@@ -1,5 +1,6 @@
 import os
 import gc
+import logging
 from typing import List, Union
 import numpy as np
 
@@ -10,7 +11,49 @@ os.environ["MKL_NUM_THREADS"] = "1"
 
 _onnx_session = None
 _tokenizer = None
-_st_model = None
+logger = logging.getLogger(__name__)
+
+
+def _log_memory(stage: str) -> None:
+    try:
+        import resource
+        usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if os.name == "nt":
+            usage /= 1024
+        if usage > 0:
+            logger.info("memory stage=%s rss_mb=%.1f", stage, usage / 1024)
+            return
+        raise OSError("resource returned no RSS value")
+    except (ImportError, AttributeError, OSError):
+        if os.name != "nt":
+            logger.debug("Memory metrics unavailable at stage=%s", stage)
+            return
+        try:
+            import ctypes
+            from ctypes import wintypes
+            class ProcessMemoryCounters(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+            counters = ProcessMemoryCounters()
+            counters.cb = ctypes.sizeof(counters)
+            process = ctypes.windll.kernel32.GetCurrentProcess()
+            get_memory_info = ctypes.windll.psapi.GetProcessMemoryInfo
+            get_memory_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessMemoryCounters), wintypes.DWORD]
+            get_memory_info.restype = wintypes.BOOL
+            if not get_memory_info(
+                process,
+                ctypes.byref(counters),
+                counters.cb
+            ):
+                raise OSError("GetProcessMemoryInfo failed")
+            logger.info("memory stage=%s rss_mb=%.1f", stage, counters.WorkingSetSize / (1024 * 1024))
+        except (AttributeError, OSError):
+            logger.debug("Memory metrics unavailable at stage=%s", stage)
 
 
 def _get_onnx_model():
@@ -41,27 +84,14 @@ def _get_onnx_model():
 
         _tokenizer = tok
         _onnx_session = sess
+        _log_memory("after_embedding_model_load")
     return _onnx_session, _tokenizer
-
-
-def _get_st_model():
-    """Fallback SentenceTransformer loader if ONNX runtime is unavailable."""
-    global _st_model
-    if _st_model is None:
-        try:
-            import torch
-            torch.set_num_threads(1)
-        except ImportError:
-            pass
-        from sentence_transformers import SentenceTransformer
-        _st_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
-    return _st_model
 
 
 def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
     """
     Generates normalized 384-dimensional embeddings for all-MiniLM-L6-v2.
-    Uses ultra-lightweight ONNX runtime with arena disabled to stay strictly under 220MB RAM.
+    Uses one CPU-only ONNX Runtime session with small batches and arena disabled.
     """
     if isinstance(texts, str):
         texts = [texts]
@@ -71,11 +101,10 @@ def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
 
     cleaned = [t if isinstance(t, str) else str(t) for t in texts]
 
-    # Primary: Fast, ultra-low memory ONNX Runtime engine
     try:
         sess, tok = _get_onnx_model()
         all_embeddings = []
-        batch_size = 16
+        batch_size = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "8")))
 
         for i in range(0, len(cleaned), batch_size):
             batch_texts = cleaned[i:i + batch_size]
@@ -100,6 +129,7 @@ def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
             norm = np.linalg.norm(mean_pooled, axis=1, keepdims=True)
             norm_emb = mean_pooled / np.clip(norm, a_min=1e-12, a_max=None)
             all_embeddings.append(norm_emb)
+            _log_memory("embedding_batch")
 
             del enc, in_ids, in_mask, in_type, outs, token_emb, mask_expanded, sum_emb, sum_mask, mean_pooled, norm
 
@@ -109,19 +139,4 @@ def generate_embeddings(texts: Union[List[str], str]) -> np.ndarray:
         return result
 
     except Exception as e:
-        # Fallback to SentenceTransformer
-        try:
-            import torch
-            model = _get_st_model()
-            with torch.inference_mode():
-                embeddings = model.encode(
-                    cleaned,
-                    batch_size=4,
-                    show_progress_bar=False,
-                    convert_to_numpy=True,
-                    normalize_embeddings=True
-                )
-            gc.collect()
-            return embeddings
-        except Exception as fallback_err:
-            raise RuntimeError(f"Embedding generation failed: ONNX error: {e}; ST error: {fallback_err}")
+        raise RuntimeError(f"ONNX embedding generation failed: {e}") from e
