@@ -217,7 +217,6 @@ export function App() {
       {activeTab === 'ask' && (
         <AskWorkspace
           documentCount={documents.length}
-          onNavigateToUpload={() => setActiveTab('library')}
         />
       )}
 

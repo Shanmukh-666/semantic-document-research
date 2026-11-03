@@ -6,12 +6,10 @@ import type { AskResponse, ChunkResult } from '../types';
 
 interface AskWorkspaceProps {
   documentCount?: number;
-  onNavigateToUpload?: () => void;
 }
 
 export const AskWorkspace: React.FC<AskWorkspaceProps> = ({
-  documentCount,
-  onNavigateToUpload
+  documentCount
 }) => {
   const [question, setQuestion] = useState<string>('');
   const [topK, setTopK] = useState<number>(5);
@@ -57,20 +55,12 @@ export const AskWorkspace: React.FC<AskWorkspaceProps> = ({
       </p>
 
       {/* Empty Library Notice */}
-      {documentCount === 0 && onNavigateToUpload && (
-        <div className="alert alert-info" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      {documentCount === 0 && (
+        <div className="alert alert-info" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <FileText size={16} />
             <span>Document library is empty. Upload a research PDF or DOCX file to ask questions!</span>
           </div>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={onNavigateToUpload}
-            style={{ fontSize: '12px', padding: '4px 12px' }}
-          >
-            Upload Document
-          </button>
         </div>
       )}
 
