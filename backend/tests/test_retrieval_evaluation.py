@@ -22,6 +22,9 @@ def index_sample_documents():
         "05_NLP_for_Climate_Research.pdf"
     ]
 
+    if not all((DATA_DIR / fname).exists() for fname in files):
+        pytest.skip("Optional repository retrieval benchmark samples are not included")
+
     for fname in files:
         fpath = DATA_DIR / fname
         if not fpath.exists():

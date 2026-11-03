@@ -179,7 +179,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onSuccess, onNavig
   const handleReindex = async () => {
     if (
       !window.confirm(
-        'This will safely clear the current vector index and re-index all uploaded and sample documents with the selected chunk settings. Continue?'
+        'This will safely clear the current vector index and re-index all documents currently available to the backend with the selected chunk settings. Continue?'
       )
     ) {
       return;

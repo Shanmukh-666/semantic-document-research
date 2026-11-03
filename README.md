@@ -179,11 +179,6 @@ semantic-document-research/
 │   └── chroma_db/
 │
 ├── data/
-│   ├── 01_NLP_in_Healthcare.pdf
-│   ├── 02_NLP_in_Education.docx
-│   ├── 03_NLP_for_Cybersecurity.pdf
-│   ├── 04_NLP_for_Finance.docx
-│   └── 05_NLP_for_Climate_Research.pdf
 │
 ├── .gitignore
 └── README.md
@@ -483,21 +478,7 @@ The test suite covers:
 * **Document processor tests:** PDF and DOCX extraction, table parsing, missing and corrupted file handling.
 * **Vector store tests:** Chunk indexing, duplicate document clean replacement, document listing, deletion, distance labeling.
 * **API integration tests:** Upload, search, ask with mocked deterministic LLM, graceful degradation on LLM failure, reindexing.
-* **Retrieval evaluation benchmark:** Evaluates Precision@1 and Recall@k on the 5 technical domain papers in `data/`.
-
-### Retrieval Benchmark Results
-
-```text
---- RETRIEVAL EVALUATION REPORT ---
-Domain: Healthcare         | Target: 01_NLP_in_Healthcare.pdf | Rank 1: 01_NLP_in_Healthcare.pdf (L2=0.9913) | Hit@1: True | Hit@3: True
-Domain: Education          | Target: 02_NLP_in_Education.docx | Rank 1: 02_NLP_in_Education.docx (L2=0.9073) | Hit@1: True | Hit@3: True
-Domain: Cybersecurity      | Target: 03_NLP_for_Cybersecurity.pdf | Rank 1: 03_NLP_for_Cybersecurity.pdf (L2=1.5023) | Hit@1: True | Hit@3: True
-Domain: Finance            | Target: 04_NLP_for_Finance.docx | Rank 1: 04_NLP_for_Finance.docx (L2=0.9776) | Hit@1: True | Hit@3: True
-Domain: Climate Research   | Target: 05_NLP_for_Climate_Research.pdf | Rank 1: 05_NLP_for_Climate_Research.pdf (L2=1.5756) | Hit@1: True | Hit@3: True
-
-Overall Precision@1 (Recall@1): 100.0%
-Overall Recall@3: 100.0%
-```
+* **Retrieval evaluation benchmark:** Runs when the optional benchmark documents are supplied locally.
 
 ### Build Frontend Production Bundle
 
@@ -578,15 +559,8 @@ The documents uploaded by the user serve as the searchable knowledge source rath
 
 ## Demo Documents
 
-The repository contains five sample documents for demonstration:
-
-1. NLP in Healthcare
-2. NLP in Education
-3. NLP for Cybersecurity
-4. NLP in Finance
-5. NLP for Climate Research
-
-The documents intentionally contain related NLP concepts across different domains so that semantic retrieval can be demonstrated across multiple documents.
+The repository does not include default sample documents. Upload your own PDF
+or DOCX files through the application.
 
 ---
 
