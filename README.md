@@ -1,367 +1,129 @@
 # Semantic Document Research
 
-An NLP-based Retrieval-Augmented Question Answering system that allows users to upload multiple PDF and DOCX documents, search them using natural-language questions, retrieve semantically relevant document chunks, and generate answers using an LLM.
+Semantic Document Research is a full-stack retrieval-augmented generation (RAG)
+application for researching uploaded PDF and DOCX documents. It extracts and
+chunks document text, creates 384-dimensional `all-MiniLM-L6-v2` embeddings,
+stores them in ChromaDB, and retrieves relevant passages for semantic search or
+Google Gemini-backed answers.
 
----
+The application is intended for research and demonstration. Answers are
+grounded in retrieved passages, which are always returned for inspection.
 
-## Overview
+## Features
 
-Traditional keyword search depends heavily on exact words appearing in a document. This can fail when a user asks a question using different terminology from the source material.
+- Upload PDF and DOCX files and index them incrementally.
+- Sentence-aware chunking with configurable chunk size and overlap.
+- Semantic similarity search with configurable top-k and L2-distance filtering.
+- Evidence-grounded question answering with retrieved source passages and
+  document/page/chunk citations.
+- Document library with indexed document counts, deletion, and clear-index
+  controls.
+- Re-index all files in `data/` and `backend/uploads/` after changing chunk
+  settings.
+- Retrieval-only fallback when `GEMINI_API_KEY` is not configured or Gemini is
+  unavailable.
+- React workspace UI plus FastAPI Swagger documentation.
 
-**Semantic Document Research** addresses this problem using NLP-based semantic retrieval.
-
-The system:
-
-1. Accepts multiple PDF and DOCX documents.
-2. Extracts text from the uploaded documents.
-3. Splits the extracted text into smaller chunks.
-4. Converts each chunk into a semantic embedding using a pretrained Sentence Transformer model.
-5. Stores the embeddings and document metadata in ChromaDB.
-6. Converts the user's question into an embedding.
-7. Performs semantic similarity search across the uploaded documents.
-8. Retrieves the most relevant document chunks.
-9. Sends the retrieved chunks and the question to an LLM.
-10. Generates a source-grounded final answer.
-
-The retrieved chunks are also returned so that the user can see **which parts of the documents were selected to generate the answer**.
-
----
-
-## Main Objective
-
-The main objective of the project is to demonstrate how NLP techniques can be used to build a semantic document research system that understands the meaning of a query rather than relying only on exact keyword matching.
-
----
-
-## System Workflow
+## Architecture
 
 ```text
-                 User
-                   |
-                   v
-            Upload Documents
-                   |
-                   v
-           Text Extraction
-                   |
-                   v
-               Chunking
-                   |
-                   v
-        Sentence Transformer
-            Embeddings
-                   |
-                   v
-              ChromaDB
-                   |
-                   |
-            User Question
-                   |
-                   v
-           Query Embedding
-                   |
-                   v
-         Semantic Similarity
-              Search
-                   |
-                   v
-         Relevant Chunks
-                   |
-          +--------+--------+
-          |                 |
-          v                 v
-   Display Retrieved       LLM
-       Chunks               |
-          |                 v
-          |           Final Answer
-          |                 |
-          +--------+--------+
-                   |
-                   v
-              API Response
+React + Vite frontend
+        |
+        | HTTPS / JSON / multipart upload
+        v
+FastAPI backend
+  |             |
+  |             +--> Google Gemini (optional answer generation)
+  |
+  +--> PDF/DOCX extraction
+  +--> sentence-aware chunking
+  +--> ONNX all-MiniLM-L6-v2 embeddings
+  +--> ChromaDB persistent vector store
 ```
 
----
-
-## NLP Components
-
-The project focuses on the following NLP concepts:
-
-### 1. Text Extraction
-
-Text is extracted from:
-
-* PDF using PyMuPDF
-* DOCX using python-docx
-
-### 2. Text Chunking
-
-Large documents are divided into smaller pieces so that individual sections can be represented and searched independently.
-
-The current implementation uses approximately:
-
-* 500 words per chunk
-* 50 words of overlap
-
-### 3. Semantic Embeddings
-
-A pretrained Sentence Transformer model is used to convert text into dense vector representations.
-
-Model:
-
-```text
-all-MiniLM-L6-v2, executed through a single CPU-only ONNX Runtime session.
-The backend does not initialize PyTorch or load a SentenceTransformer fallback.
-```
-
-This allows semantically similar sentences to have similar vector representations even when their wording is different.
-
-### 4. Semantic Similarity Search
-
-The embedding of the user's query is compared against stored document embeddings.
-
-ChromaDB retrieves the most relevant chunks according to vector distance.
-
-### 5. Retrieval-Augmented Generation
-
-The retrieved chunks are provided as context to the LLM.
-
-```text
-Question + Retrieved Context
-            |
-            v
-           LLM
-            |
-            v
-       Final Answer
-```
-
-The LLM is instructed to answer using the retrieved document context rather than relying on unrelated external information.
-
----
-
-## Technology Stack
-
-| Component             | Technology            |
-| --------------------- | --------------------- |
-| Programming Language  | Python                |
-| API Framework         | FastAPI               |
-| API Testing Interface | Swagger UI            |
-| PDF Processing        | PyMuPDF               |
-| DOCX Processing       | python-docx           |
-| Embedding Model       | all-MiniLM-L6-v2 via ONNX Runtime |
-| Embedding Model       | all-MiniLM-L6-v2      |
-| Vector Database       | ChromaDB              |
-| LLM                   | Google Gemini         |
-| Environment Variables | python-dotenv         |
-
----
+In the deployed setup, the frontend is hosted on Vercel and the backend runs
+on Render. The frontend first uses the Render API and falls back to the Vercel
+`/api` reverse proxy when necessary. For local development, the frontend can
+still use the same cloud API configuration, or the backend can be run locally
+for API and integration testing.
 
 ## Project Structure
 
 ```text
 semantic-document-research/
-│
 ├── backend/
-│   ├── main.py
+│   ├── main.py                 # FastAPI application and API routes
 │   ├── requirements.txt
 │   ├── .env.example
-│   │
 │   ├── services/
 │   │   ├── document_processor.py
 │   │   ├── chunker.py
 │   │   ├── embedding_service.py
 │   │   ├── vector_store.py
 │   │   └── llm_service.py
-│   │
-│   ├── uploads/
-│   │
-│   └── chroma_db/
-│
-├── data/
-│
-├── .gitignore
+│   ├── tests/
+│   ├── uploads/                # Runtime uploads
+│   └── chroma_db/              # Local ChromaDB data
+├── data/                       # Optional documents for re-indexing
+├── frontend/
+│   ├── src/
+│   ├── public/
+│   ├── package.json
+│   └── vite.config.ts
+├── vercel.json                 # Frontend routing and API proxy
 └── README.md
 ```
 
----
+## Requirements
 
-## API Endpoints
+- Python 3.10 or newer
+- Node.js and npm
+- A Google Gemini API key for generated answers (optional)
 
-### `GET /`
+## Local Setup
 
-Checks whether the API is running.
+From the repository root:
 
-Example response:
+### 1. Create and activate a Python environment
 
-```json
-{
-  "message": "Semantic Document Research API is running"
-}
-```
-
----
-
-### `POST /upload`
-
-Uploads and processes a PDF or DOCX document.
-
-The document is:
-
-```text
-Uploaded File
-    ↓
-Text Extraction
-    ↓
-Chunking
-    ↓
-Embedding Generation
-    ↓
-ChromaDB Storage
-```
-
-Example response:
-
-```json
-{
-  "filename": "research.pdf",
-  "pages": 5,
-  "chunks_created": 10,
-  "chunks_stored": 10,
-  "message": "Document processed and stored successfully"
-}
-```
-
----
-
-### `POST /search`
-
-Performs semantic retrieval without generating an LLM answer.
-
-Example request:
-
-```json
-{
-  "query": "How can NLP help detect suspicious activity in cybersecurity?",
-  "top_k": 3
-}
-```
-
-The response contains:
-
-* Document name
-* Page number
-* Chunk ID
-* Chunk text
-* Distance
-
-Example:
-
-```json
-{
-  "query": "How can NLP help detect suspicious activity in cybersecurity?",
-  "results": [
-    {
-      "document_name": "03_NLP_for_Cybersecurity.pdf",
-      "page_number": 1,
-      "chunk_id": 1,
-      "text": "...",
-      "distance": 0.67
-    }
-  ]
-}
-```
-
-This endpoint is useful for demonstrating the **NLP semantic retrieval process**.
-
----
-
-### `POST /ask`
-
-Performs the complete RAG pipeline.
-
-Example request:
-
-```json
-{
-  "query": "How can NLP help detect suspicious activity in cybersecurity?",
-  "top_k": 3
-}
-```
-
-The endpoint:
-
-```text
-Question
-   ↓
-Query Embedding
-   ↓
-ChromaDB Search
-   ↓
-Relevant Chunks
-   ↓
-LLM
-   ↓
-Final Answer
-```
-
-The response contains:
-
-* Question
-* Generated answer
-* Retrieved chunks
-* Source documents
-* Page numbers
-* Chunk IDs
-
----
-
-## Installation
-
-### 1. Clone the repository
-
-```bash
-git clone <your-repository-url>
-cd semantic-document-research
-```
-
-### 2. Open the backend
-
-```bash
-cd backend
-```
-
-### 3. Create a virtual environment
-
-Windows:
+Windows PowerShell:
 
 ```powershell
-python -m venv venv
-venv\Scripts\activate
+python -m venv backend\venv
+.\backend\venv\Scripts\Activate.ps1
 ```
 
 macOS/Linux:
 
 ```bash
-### 3. Setup Virtual Environment
-
-```bash
-# Windows
-python -m venv backend/venv
-.\backend\venv\Scripts\activate
-
-# Linux / macOS
 python -m venv backend/venv
 source backend/venv/bin/activate
 ```
 
-### 4. Install Dependencies
+### 2. Install backend dependencies
 
 ```bash
-pip install -r backend/requirements.txt
+python -m pip install -r backend/requirements.txt
 ```
 
-### 5. Frontend Setup
+### 3. Configure the backend
+
+Copy `backend/.env.example` to `backend/.env` and set the variables you need.
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+MAX_UPLOAD_SIZE_MB=10
+MAX_PAGE_COUNT=200
+MAX_CONCURRENT_INGESTIONS=1
+EMBEDDING_BATCH_SIZE=8
+CHROMA_INSERT_BATCH_SIZE=32
+```
+
+`GEMINI_API_KEY` is optional. Without it, document processing and semantic
+search continue to work, while `/ask` returns the retrieved evidence with an
+LLM-unavailable status.
+
+### 4. Install frontend dependencies
 
 ```bash
 cd frontend
@@ -369,239 +131,126 @@ npm install
 cd ..
 ```
 
-### 6. Configure Environment Variables
+## Run Locally
 
-Copy `.env.example` to `backend/.env`:
+Start the backend from the repository root:
 
-```bash
-cp .env.example backend/.env
+```powershell
+.\backend\venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000
 ```
 
-Optionally set your `GEMINI_API_KEY`:
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-```
-> **Note:** If `GEMINI_API_KEY` is omitted or unconfigured, the system runs in retrieval-only mode. Semantic search, document parsing, and chunk inspection remain 100% functional without throwing 500 errors.
+Or from the `backend` directory:
 
----
-
-## Running the Project
-
-### Start the FastAPI Backend
-
-From the repository root:
-```bash
-.\backend\venv\Scripts\uvicorn backend.main:app --reload --port 8000
-```
-Or from the `backend/` directory:
 ```bash
 cd backend
 python -m uvicorn main:app --reload --port 8000
 ```
 
-For Render Free (512 MB), use exactly one worker and do not use `--reload`:
+The backend is available at <http://localhost:8000>. Interactive Swagger
+documentation is available at <http://localhost:8000/docs>.
 
-```bash
-cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
-```
+Start the frontend in a second terminal:
 
-#### Render Free memory and storage limits
-
-Document ingestion is deliberately sequential. PDF pages and DOCX records are
-consumed incrementally, embeddings are generated in batches, and Chroma inserts
-are bounded. A per-process semaphore prevents concurrent ingestion requests from
-loading multiple pipelines. The default limits are:
-
-| Variable | Default |
-| --- | ---: |
-| `MAX_UPLOAD_SIZE_MB` | `10` |
-| `MAX_FILES_PER_REQUEST` | `1` |
-| `MAX_PAGE_COUNT` | `200` |
-| `MAX_CONCURRENT_INGESTIONS` | `1` |
-| `EMBEDDING_BATCH_SIZE` | `8` |
-| `CHROMA_INSERT_BATCH_SIZE` | `32` |
-
-These are conservative starting values, not a guarantee that every document
-fits in 512 MB. The backend logs memory-stage markers for startup, model load,
-extraction, embedding batches, Chroma insertion, and cleanup. Validate RSS on
-the deployed service with representative documents before increasing limits.
-Oversized uploads are rejected with HTTP 413, and failed indexing does not
-delete the previous version of a document.
-
-The application still uses ChromaDB in `backend/chroma_db` via
-`PersistentClient`. Render Free has an ephemeral filesystem: local ChromaDB
-indexes are lost after restart, redeploy, or spin-down. This project does not
-claim durable persistence and does not retain original uploads. Durable
-ChromaDB storage requires a remotely hosted ChromaDB-compatible service or a
-Render plan with a persistent disk; no external service is enabled by default.
-
-* API Root: `http://localhost:8000`
-* Interactive API Documentation (Swagger UI): `http://localhost:8000/docs`
-
-### Start the React Frontend
-
-In a separate terminal:
 ```bash
 cd frontend
 npm run dev
 ```
 
-* React Research Workspace: `http://localhost:5173`
+The Vite development server is normally available at
+<http://localhost:5173>.
 
----
+## API Reference
 
-## API Endpoints
+Every core route is also available under the `/api` prefix for the Vercel
+proxy, for example `/api/search`.
 
-| Method | Endpoint | Description |
+| Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/` | API status, version, and count of indexed chunks |
-| `GET` | `/documents` | Lists all indexed documents, chunk counts, and page counts |
-| `DELETE` | `/documents/{filename}` | Removes a document and its chunks from the vector store |
-| `POST` | `/upload` | Accepts PDF/DOCX with optional `chunk_size` and `overlap` form fields |
-| `POST` | `/search` | Semantic similarity search returning top-k chunks with L2 distance |
-| `POST` | `/ask` | Evidence-grounded Q&A with citations, inspectable chunks, and LLM fallback |
-| `POST` | `/reindex` | Safely resets vector store and re-indexes all files with new chunk parameters |
-| `GET` | `/debug/chroma` | Collection diagnostics and summary |
+| `GET` | `/` | API status, version, and indexed chunk count |
+| `GET` | `/documents` | List indexed documents and chunk/page metadata |
+| `POST` | `/upload` | Upload and index one PDF or DOCX file |
+| `DELETE` | `/documents/{filename}` | Remove one document from the index |
+| `POST` | `/documents/clear` | Clear the complete vector index |
+| `POST` | `/search` | Retrieve semantically similar passages |
+| `POST` | `/ask` | Retrieve passages and generate an evidence-grounded answer |
+| `POST` | `/reindex` | Clear and re-index documents from disk |
+| `GET` | `/debug/chroma` | Return ChromaDB collection diagnostics |
 
----
+### Search request
 
-## Automated Testing & Evaluation
-
-### Run Test Suite
-
-```bash
-.\backend\venv\Scripts\pytest backend/tests -v
+```json
+{
+  "query": "How can NLP help identify suspicious activity?",
+  "top_k": 5,
+  "distance_threshold": 1.5
+}
 ```
 
-The test suite covers:
-* **Chunker unit tests:** Empty text, sentence boundaries, overlap bounds, long sentence splitting, trailing chunk merging, invalid parameter validation.
-* **Document processor tests:** PDF and DOCX extraction, table parsing, missing and corrupted file handling.
-* **Vector store tests:** Chunk indexing, duplicate document clean replacement, document listing, deletion, distance labeling.
-* **API integration tests:** Upload, search, ask with mocked deterministic LLM, graceful degradation on LLM failure, reindexing.
-* **Retrieval evaluation benchmark:** Runs when the optional benchmark documents are supplied locally.
+`top_k` is limited by the API to 50 for `/search` and 20 for `/ask`.
+`distance_threshold` can be set to `null` to disable distance filtering.
 
-### Build Frontend Production Bundle
+### Upload request
+
+`/upload` accepts a multipart form with:
+
+- `file`: one `.pdf` or `.docx` file
+- `chunk_size`: optional word target, default `300`
+- `overlap`: optional overlap word count, default `50`
+
+The default upload limit is 10 MB and the default maximum page count is 200.
+
+## Testing and Builds
+
+Run the backend tests:
+
+```powershell
+.\backend\venv\Scripts\python.exe -m pytest backend\tests -v
+```
+
+Build the frontend:
 
 ```bash
 cd frontend
 npm run build
 ```
 
-### Education
+Run the frontend linter:
 
-```text
-How can semantic search help students find learning material?
+```bash
+npm run lint
 ```
 
-### Cybersecurity
+## Deployment Notes
 
-```text
-How can NLP help identify suspicious activity?
+The repository includes Vercel configuration for frontend hosting and
+`/api/*` proxy rewrites to the Render backend. A typical Render start command
+is:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
 ```
 
-### Finance
+Use one worker on memory-constrained deployments. The backend deliberately
+limits upload size, page count, concurrent ingestion, embedding batches, and
+Chroma insert batches.
 
-```text
-How can NLP help analysts find risks in financial reports?
-```
-
-### Cross-document research
-
-```text
-What are the major applications of NLP across different industries?
-```
-
-The last type of query can retrieve relevant information from multiple uploaded documents.
-
----
-
-## Why This Is an NLP Project
-
-The core intelligence of the system comes from NLP techniques:
-
-```text
-Text
- ↓
-Text Processing
- ↓
-Chunking
- ↓
-Semantic Embeddings
- ↓
-Vector Representation
- ↓
-Semantic Similarity
- ↓
-Information Retrieval
-```
-
-The LLM is used only after retrieval to generate a concise answer from the selected evidence.
-
-Therefore, the project combines:
-
-* Natural Language Processing
-* Semantic Information Retrieval
-* Vector Search
-* Retrieval-Augmented Generation
-* Large Language Models
-
----
-
-## Dataset
-
-No training dataset is required.
-
-The project uses pretrained models for semantic embedding and language generation.
-
-The documents uploaded by the user serve as the searchable knowledge source rather than a model-training dataset.
-
----
-
-## Demo Documents
-
-The repository does not include default sample documents. Upload your own PDF
-or DOCX files through the application.
-
----
+The local ChromaDB store is under `backend/chroma_db`. Deployments with an
+ephemeral filesystem can lose indexed documents after a restart, redeploy, or
+spin-down. Durable persistence requires a persistent disk or an externally
+hosted ChromaDB-compatible service. Do not commit API keys or other secrets;
+configure them through local environment files or deployment secrets.
 
 ## Limitations
 
-* The current system uses pretrained embedding models and does not fine-tune an NLP model.
-* Retrieval quality depends on the embedding model, chunking strategy, and document quality.
-* DOCX documents are currently treated as a single extracted text source for page metadata purposes.
-* Generated answers should be verified against the retrieved source content.
-* The system is designed as an academic research/demo application rather than a production document-management platform.
+- The system uses pretrained embeddings and does not train or fine-tune an NLP
+  model.
+- Scanned PDFs require OCR and are not automatically converted to text.
+- Retrieval quality depends on document quality, chunk settings, and semantic
+  similarity thresholds.
+- Generated answers should be checked against the returned source passages.
+- DOCX page metadata is based on extracted document structure rather than
+  printed page layout.
 
----
+## License
 
-## Future Improvement Possibilities
-
-Possible future improvements include:
-
-* Better sentence/paragraph-aware chunking
-* Improved retrieval and reranking
-* Support for additional document formats
-* OCR for scanned documents
-* Retrieval evaluation using a labeled question set
-* More advanced citation handling
-
-These features are outside the current project scope.
-
----
-
-## Project Classification
-
-**Project Type:** NLP + Semantic Search + RAG
-
-**Primary Domain:** Natural Language Processing
-
-**Core NLP Technique:** Semantic Text Embeddings
-
-**Retrieval Technology:** ChromaDB
-
-**Generation Technology:** Google Gemini
-
-**Interface:** FastAPI Swagger UI
-
----
-
+No license file is currently included in the repository.
